@@ -1,46 +1,69 @@
-const User = require('../models/User');
-const Contact = require('../models/Contact');
+import User from '../models/User.js';
+import PaymentSlip from '../models/PaymentSlip.js';
 
-exports.getAllUsers = async (req, res) => {
+export async function getAllUsers(req, res) {
   try {
-    const { page = 1, limit = 10, search = '', rank = '' } = req.query;
-    const query = {};
-    if (search) {
-      query.$or = [
-        { username: { $regex: search, $options: 'i' } },
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
-      ];
-    }
-    if (rank) {
-      query.rank = rank;
-    }
-    const users = await User.find(query)
-      .select('-password')
-      .populate('sponsorId', 'username firstName lastName')
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .sort({ createdAt: -1 });
-    const total = await User.countDocuments(query);
-    res.json({
-      users,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total
-    });
-  } catch (error) {
-    console.error('Get users error:', error);
-    res.status(500).json({ message: 'Server error' });
+    const users = await User.find();
+    if (!users) return res.status(404).json({ error: 'No users found.' });
+    res.json({ message: 'All users fetched successfully.', users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-};
+}
 
-exports.getAllContacts = async (req, res) => {
+export async function updateUserIncome(req, res) {
   try {
-    const contacts = await Contact.find().sort({ createdAt: -1 });
-    res.json(contacts);
-  } catch (error) {
-    console.error('Get contacts error:', error);
-    res.status(500).json({ message: 'Server error' });
+    const { id } = req.params;
+    const { referralIncome, matchingIncome, generationIncome, tradingIncome, rewardIncome } = req.body;
+    const update = {};
+    if (referralIncome !== undefined) update.referralIncome = referralIncome;
+    if (matchingIncome !== undefined) update.matchingIncome = matchingIncome;
+    if (generationIncome !== undefined) update.generationIncome = generationIncome;
+    if (tradingIncome !== undefined) update.tradingIncome = tradingIncome;
+    if (rewardIncome !== undefined) update.rewardIncome = rewardIncome;
+    const user = await User.findByIdAndUpdate(id, update, { new: true });
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    res.json({ message: 'User details fetched successfully.', user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-}; 
+}
+
+export async function getAllPaymentSlips(req, res) {
+  try {
+    const slips = await PaymentSlip.find().populate('user');
+    if (!slips) return res.status(404).json({ error: 'No payment slips found.' });
+    res.json({ message: 'Payment slips fetched successfully.', slips });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+export async function updatePaymentSlipStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const { status, reason } = req.body;
+    const slip = await PaymentSlip.findByIdAndUpdate(id, { status, reason }, { new: true });
+    if (!slip) return res.status(404).json({ error: 'Payment slip not found.' });
+    slip.verifiedBy = req.user.id;
+    slip.verifiedAt = new Date();
+    slip.status = 'approved';
+    await slip.save();
+    res.json({ message: 'Payment slip approved successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+export async function rejectPaymentSlip(req, res) {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body;
+    const slip = await PaymentSlip.findByIdAndUpdate(id, { rejectedAt: new Date(), status: 'rejected', remarks }, { new: true });
+    if (!slip) return res.status(404).json({ error: 'Payment slip not found.' });
+    await slip.save();
+    res.json({ message: 'Payment slip rejected successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+} 

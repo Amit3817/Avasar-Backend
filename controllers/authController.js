@@ -1,202 +1,173 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const nodemailer = require('nodemailer');
-const Otp = require('../models/Otp');
+import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { sendOtp } from '../utils/sendOtp.js';
+import { generateUniqueReferralCode, addReferralIncome, addMatchingIncome, addGenerationIncome, addTradingIncome, addRewardIncome } from '../utils/referral.js';
 
+// Improved OTP rate limit (by phone and email)
+const otpRateLimit = {};
+const OTP_WINDOW = 30 * 1000; // 30 seconds
 
-exports.registerUser = async (req, res) => {
+function validateEmail(email) {
+  return /.+@.+\..+/.test(email);
+}
+function validatePhone(phone) {
+  return /^\d{10}$/.test(phone);
+}
+
+export const register = async (req, res) => {
   try {
-    const { username, email, password, firstName, lastName, phone, sponsorId } = req.body;
-    // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User with this email or username already exists' });
-    }
-    // If sponsorId is provided, validate it
-    let sponsor = null;
-    if (sponsorId) {
-      sponsor = await User.findOne({ $or: [{ referralCode: sponsorId }, { username: sponsorId }] });
-      if (!sponsor) {
-        return res.status(400).json({ message: 'Invalid sponsor ID or referral code' });
+    const { fullName, email, phone, password, referralCode, isAdmin, position } = req.body;
+    if (!fullName || !email || !phone || !password)
+      return res.status(400).json({ error: 'Please fill in all required fields.' });
+    if (!validateEmail(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+    if (!validatePhone(phone)) return res.status(400).json({ error: 'Please enter a valid 10-digit phone number.' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    let refUser = null;
+    if (referralCode) {
+      refUser = await User.findOne({ referralCode });
+      if (!refUser) return res.status(400).json({ error: 'Referral code not found. Please check and try again.' });
+      if (!position || !['left', 'right'].includes(position)) {
+        return res.status(400).json({ error: 'Please select a position (left or right) when using a referral code.' });
       }
     }
-    // Create new user
-    const user = new User({
-      username,
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      sponsorId: sponsor ? sponsor._id : null
-    });
-    await user.save();
-    // Generate JWT token
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({
-      message: 'User registered successfully',
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        rank: user.rank,
-        referralCode: user.referralCode
-      }
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error: ' + error.message });
-  }
-};
-
-exports.loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    // Find user by email
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-    // Check if account is active
-    if (!user.isActive) {
-      return res.status(400).json({ message: 'Account is deactivated' });
-    }
-    // Generate JWT token
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        rank: user.rank,
-        referralCode: user.referralCode
-      }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-exports.getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id).select('-password');
-    res.json(user);
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-exports.getReferral = async (req, res) => {
-  try {
-    const { referralCode } = req.params;
-    const user = await User.findOne({ referralCode }).select('firstName lastName username');
-    if (!user) {
-      return res.status(404).json({ message: 'Referral code not found' });
-    }
-    res.json({
-      sponsor: {
-        name: `${user.firstName} ${user.lastName}`,
-        username: user.username
-      }
-    });
-  } catch (error) {
-    console.error('Get referral error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-exports.sendOtp = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required' });
-    // Generate 6-digit OTP
+    // OTP rate limit (by phone and email)
+    const otpKey = `${phone || ''}|${email || ''}`;
+    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
+      return res.status(429).json({ error: 'OTP recently sent. Please wait before requesting again.' });
+    otpRateLimit[otpKey] = Date.now();
+    const hashedPassword = await bcrypt.hash(password, 10);
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 min expiry
-    // Remove any existing OTPs for this email
-    await Otp.deleteMany({ email });
-    // Save OTP to DB
-    await Otp.create({ email, otp, expiresAt });
-    // Send OTP via email
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    const newReferralCode = await generateUniqueReferralCode();
+    const user = await User.create({
+      fullName, email, phone,
+      password: hashedPassword, otp, otpExpires,
+      referredBy: refUser ? refUser._id : null, isAdmin: !!isAdmin, referralCode: newReferralCode,
+      position: refUser ? position : null
+    });
+    try {
+      await sendOtp(email, otp);
+    } catch (mailErr) {
+      console.error('Failed to send OTP email:', mailErr);
+      return res.status(500).json({ error: 'Could not send OTP email. Please try again later or contact support.' });
+    }
+    // Update referrer's left/right arrays if applicable
+    if (refUser) {
+      if (position === 'left') {
+        refUser.left.push(user._id);
+        await refUser.save();
+      } else if (position === 'right') {
+        refUser.right.push(user._id);
+        await refUser.save();
       }
-    });
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Your OTP Code',
-      text: `Your OTP code is: ${otp}`
-    });
-    res.json({ message: 'OTP sent successfully' });
-  } catch (error) {
-    console.error('Send OTP error:', error);
-    res.status(500).json({ message: 'Failed to send OTP' });
+      // Use refUser for income functions to avoid duplicate queries
+      await addReferralIncome(user._id, refUser);
+      await addMatchingIncome(user._id, refUser);
+      await addGenerationIncome(user._id);
+    }
+    await addTradingIncome(user._id);
+    await addRewardIncome(user._id);
+    // Send OTP to user's email
+    res.json({ message: 'Registration successful! An OTP has been sent to your email.' });
+  } catch (err) {
+    if (err.code === 11000) {
+      if (err.keyPattern && err.keyPattern.email) {
+        return res.status(400).json({ error: 'This email is already registered. Please log in or use a different email address.' });
+      }
+      if (err.keyPattern && err.keyPattern.phone) {
+        return res.status(400).json({ error: 'This phone number is already registered. Please log in or use a different phone number.' });
+      }
+      return res.status(400).json({ error: 'Duplicate entry. Please use different details.' });
+    }
+    res.status(400).json({ error: err.message });
   }
 };
 
-exports.verifyOtp = async (req, res) => {
+export const verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
-    if (!email || !otp) return res.status(400).json({ message: 'Email and OTP are required' });
-    const record = await Otp.findOne({ email, otp });
-    if (!record) return res.status(400).json({ message: 'Invalid OTP' });
-    if (Date.now() > record.expiresAt.getTime()) {
-      await Otp.deleteOne({ _id: record._id });
-      return res.status(400).json({ message: 'OTP expired' });
-    }
-    await Otp.deleteOne({ _id: record._id });
-    res.json({ message: 'OTP verified successfully' });
-  } catch (error) {
-    console.error('Verify OTP error:', error);
-    res.status(500).json({ message: 'Failed to verify OTP' });
-  }
-};
-
-exports.resetPassword = async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
-    if (!email || !newPassword) return res.status(400).json({ message: 'Email and new password are required' });
-    // For demo, allow reset if OTP was verified (in production, use a more secure method)
+    if (!email || !otp) return res.status(400).json({ error: 'Both email and OTP are required.' });
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    user.password = newPassword;
+    if (!user) return res.status(404).json({ error: 'No account found with this email.' });
+
+    const MAX_OTP_ATTEMPTS = 5;
+    const OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
+
+    if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
+      return res.status(429).json({ error: 'Too many incorrect attempts. Please try again after 15 minutes.' });
+    }
+
+    if (user.otp !== otp || user.otpExpires < new Date()) {
+      user.otpAttempts = (user.otpAttempts || 0) + 1;
+      if (user.otpAttempts >= MAX_OTP_ATTEMPTS) {
+        user.otpLockedUntil = new Date(Date.now() + OTP_LOCK_TIME);
+      }
+      await user.save();
+      return res.status(400).json({ error: 'Invalid or expired OTP. Please check your email and try again.' });
+    }
+
+    user.isVerified = true;
+    user.otp = null;
+    user.otpExpires = null;
+    user.otpAttempts = 0;
+    user.otpLockedUntil = null;
     await user.save();
-    res.json({ message: 'Password reset successfully' });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ message: 'Failed to reset password' });
+    // Generate JWT token after successful verification
+    const token = jwt.sign({ id: user._id, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({
+      message: 'Your email has been verified successfully!',
+      token,
+      user: {
+        email: user.email,
+        phone: user.phone,
+        fullName: user.fullName,
+        referralCode: user.referralCode,
+        isAdmin: user.isAdmin
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 };
 
-exports.checkUsernameAvailability = async (req, res) => {
+export const login = async (req, res) => {
   try {
-    const { username } = req.query;
-    if (!username) return res.status(400).json({ available: false, message: 'Username is required' });
-    const user = await User.findOne({ username });
-    if (user) {
-      return res.json({ available: false, message: 'Username already taken' });
-    }
-    res.json({ available: true, message: 'Username is available' });
-  } catch (error) {
-    res.status(500).json({ available: false, message: 'Server error' });
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Please enter both email and password.' });
+    const user = await User.findOne({ email });
+    if (!user || !user.isVerified) return res.status(400).json({ error: 'Invalid credentials or your email is not verified.' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(400).json({ error: 'Incorrect password. Please try again.' });
+    const token = jwt.sign({ id: user._id, isAdmin: user.isAdmin }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { email: user.email, phone: user.phone, fullName: user.fullName, referralCode: user.referralCode, isAdmin: user.isAdmin } });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+export const resendOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Please provide your email address.' });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'No account found with this email.' });
+
+    // Rate limit logic (reuse from register)
+    const otpKey = `${user.phone || ''}|${user.email || ''}`;
+    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
+      return res.status(429).json({ error: 'OTP was recently sent. Please wait before requesting again.' });
+    otpRateLimit[otpKey] = Date.now();
+
+    // Generate and save new OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otp = otp;
+    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    await sendOtp(user.email, otp);
+    res.json({ message: 'A new OTP has been sent to your email.' });
+  } catch (err) {
+    res.status(400).json({ error: 'Could not resend OTP. Please try again later.' });
   }
 }; 
