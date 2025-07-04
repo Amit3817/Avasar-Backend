@@ -1,11 +1,194 @@
 import express from 'express';
 import { register, verifyOtp, login, resendOtp } from '../controllers/authController.js';
+import { registerValidator, loginValidator, otpValidator, resendOtpValidator } from '../validators/authValidators.js';
+import { validationResult } from 'express-validator';
+import { authLimiter, otpLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-router.post('/register', register);
-router.post('/verify-otp', verifyOtp);
-router.post('/login', login);
-router.post('/resend-otp', resendOtp);
+function handleValidation(req, res, next) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+  next();
+}
+
+/**
+ * @swagger
+ * /api/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fullName
+ *               - email
+ *               - phone
+ *               - password
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *                 description: User's full name
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *               phone:
+ *                 type: string
+ *                 description: User's phone number (10 digits)
+ *               password:
+ *                 type: string
+ *                 description: User's password (min 8 chars, must include uppercase, lowercase, number, special char)
+ *               referralCode:
+ *                 type: string
+ *                 description: Optional referral code
+ *               position:
+ *                 type: string
+ *                 enum: [left, right]
+ *                 description: Position under referrer (required if referralCode provided)
+ *     responses:
+ *       200:
+ *         description: Registration successful, OTP sent to email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Registration successful! An OTP has been sent to your email."
+ *       400:
+ *         description: Validation error or duplicate user
+ *       429:
+ *         description: Rate limit exceeded
+ */
+router.post('/register', authLimiter, registerValidator, handleValidation, register);
+
+/**
+ * @swagger
+ * /api/auth/verify-otp:
+ *   post:
+ *     summary: Verify OTP and complete registration
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               otp:
+ *                 type: string
+ *                 description: 6-digit OTP code
+ *     responses:
+ *       200:
+ *         description: OTP verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 token:
+ *                   type: string
+ *                   description: JWT token
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid OTP or expired
+ *       429:
+ *         description: Too many OTP attempts
+ */
+router.post('/verify-otp', otpLimiter, otpValidator, handleValidation, verifyOtp);
+
+/**
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     summary: User login
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT token
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Invalid credentials or unverified email
+ *       429:
+ *         description: Rate limit exceeded
+ */
+router.post('/login', authLimiter, loginValidator, handleValidation, login);
+
+/**
+ * @swagger
+ * /api/auth/resend-otp:
+ *   post:
+ *     summary: Resend OTP to user's email
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: OTP resent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "A new OTP has been sent to your email."
+ *       400:
+ *         description: User not found or email error
+ *       429:
+ *         description: Rate limit exceeded
+ */
+router.post('/resend-otp', otpLimiter, resendOtpValidator, handleValidation, resendOtp);
 
 export default router; 
