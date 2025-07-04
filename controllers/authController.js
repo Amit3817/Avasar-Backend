@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { sendOtp } from '../utils/sendOtp.js';
 import { generateUniqueReferralCode, addReferralIncome, addMatchingIncome, addRewardIncome } from '../utils/referral.js';
 import authService from '../services/authService.js';
+import { trackOtpAttempt, resetOtpAttempts } from '../middleware/otpLimiter.js';
 
 // Improved OTP rate limit (by phone and email)
 const otpRateLimit = {};
@@ -37,8 +38,12 @@ export const register = async (req, res) => {
 export const verifyOtp = async (req, res) => {
   try {
     const result = await authService.verifyOtp(req.body);
+    // Reset OTP attempts on successful verification
+    resetOtpAttempts(req.body.email);
     res.json({ message: 'Your email has been verified successfully!', ...result });
   } catch (err) {
+    // Track failed OTP attempt
+    trackOtpAttempt(req.body.email);
     res.status(400).json({ error: err.message });
   }
 };

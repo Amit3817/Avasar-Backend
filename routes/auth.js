@@ -112,7 +112,7 @@ router.post('/register', registerValidator, handleValidation, register);
  *       429:
  *         description: Too many OTP attempts
  */
-router.post('/verify-otp', otpValidator, handleValidation, verifyOtp);
+router.post('/verify-otp', otpVerificationLimiter, otpValidator, handleValidation, verifyOtp);
 
 /**
  * @swagger
@@ -189,6 +189,6 @@ router.post('/login', loginValidator, handleValidation, login);
  *       429:
  *         description: Rate limit exceeded
  */
-router.post('/resend-otp', resendOtpValidator, handleValidation, resendOtp);
+router.post('/resend-otp', otpResendLimiter, resendOtpValidator, handleValidation, resendOtp);
 
 export default router; 
