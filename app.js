@@ -8,14 +8,6 @@ import morgan from 'morgan';
 import cron from 'node-cron';
 import User from './models/User.js';
 import mongoSanitize from 'express-mongo-sanitize';
-import { generalLimiter } from './middleware/rateLimiter.js';
-import { 
-  helmetConfig, 
-  slowDownConfig, 
-  requestSizeLimit, 
-  securityHeaders, 
-  securityLogging 
-} from './middleware/security.js';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpecs from './config/swagger.js';
 dotenv.config();
@@ -29,12 +21,6 @@ import logger from './config/logger.js';
 
 const app = express();
 
-// Security middleware (apply early)
-app.use(helmetConfig);
-app.use(securityHeaders);
-app.use(requestSizeLimit);
-app.use(securityLogging);
-
 // Basic middleware
 app.use(cors({
   origin: true, // Allow all origins
@@ -46,10 +32,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static('uploads'));
 app.use(mongoSanitize());
-
-// Rate limiting and slow down
-app.use(generalLimiter);
-app.use(slowDownConfig);
 
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {

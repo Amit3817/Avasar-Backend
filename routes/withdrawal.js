@@ -9,7 +9,6 @@ import {
 } from '../controllers/withdrawalController.js';
 import { withdrawalValidator } from '../validators/userValidators.js';
 import { validationResult } from 'express-validator';
-import { withdrawalLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -22,7 +21,7 @@ function handleValidation(req, res, next) {
   next();
 }
 
-router.post('/', requireAuth, withdrawalLimiter, withdrawalValidator, handleValidation, requestWithdrawal); // POST /withdrawal
+router.post('/', requireAuth, withdrawalValidator, handleValidation, requestWithdrawal); // POST /withdrawal
 router.get('/', requireAuth, getUserWithdrawals); // GET /withdrawal
 
 // ADMIN ROUTES

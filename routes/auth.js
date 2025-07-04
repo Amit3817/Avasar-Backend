@@ -2,7 +2,7 @@ import express from 'express';
 import { register, verifyOtp, login, resendOtp } from '../controllers/authController.js';
 import { registerValidator, loginValidator, otpValidator, resendOtpValidator } from '../validators/authValidators.js';
 import { validationResult } from 'express-validator';
-import { authLimiter, otpLimiter } from '../middleware/rateLimiter.js';
+import { otpVerificationLimiter, otpResendLimiter } from '../middleware/otpLimiter.js';
 
 const router = express.Router();
 
@@ -68,7 +68,7 @@ function handleValidation(req, res, next) {
  *       429:
  *         description: Rate limit exceeded
  */
-router.post('/register', authLimiter, registerValidator, handleValidation, register);
+router.post('/register', registerValidator, handleValidation, register);
 
 /**
  * @swagger
@@ -112,7 +112,7 @@ router.post('/register', authLimiter, registerValidator, handleValidation, regis
  *       429:
  *         description: Too many OTP attempts
  */
-router.post('/verify-otp', otpLimiter, otpValidator, handleValidation, verifyOtp);
+router.post('/verify-otp', otpValidator, handleValidation, verifyOtp);
 
 /**
  * @swagger
@@ -153,7 +153,7 @@ router.post('/verify-otp', otpLimiter, otpValidator, handleValidation, verifyOtp
  *       429:
  *         description: Rate limit exceeded
  */
-router.post('/login', authLimiter, loginValidator, handleValidation, login);
+router.post('/login', loginValidator, handleValidation, login);
 
 /**
  * @swagger
@@ -189,6 +189,6 @@ router.post('/login', authLimiter, loginValidator, handleValidation, login);
  *       429:
  *         description: Rate limit exceeded
  */
-router.post('/resend-otp', otpLimiter, resendOtpValidator, handleValidation, resendOtp);
+router.post('/resend-otp', resendOtpValidator, handleValidation, resendOtp);
 
 export default router; 
