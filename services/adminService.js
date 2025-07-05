@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
+import Withdrawal from '../models/Withdrawal.js';
 import referralService from './referralService.js';
 import investmentService from './investmentService.js';
 import logger from '../config/logger.js';
@@ -54,7 +55,10 @@ const adminService = {
   },
 
   async getAllPaymentSlips(pagination = {}) {
-    const { page = 1, limit = 10, skip = 0, sort = { createdAt: -1 }, search = '', status = '', startDate = '', endDate = '' } = pagination;
+    const { page = 1, limit = 10, skip = 0, sort, search = '', status = '', startDate = '', endDate = '' } = pagination;
+    
+    // Always sort by uploadedAt (newest first) for payment slips
+    const sortBy = { uploadedAt: -1 };
     
     // Build query
     let query = {};
@@ -66,9 +70,9 @@ const adminService = {
     
     // Date range filter
     if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) query.createdAt.$gte = new Date(startDate);
-      if (endDate) query.createdAt.$lte = new Date(endDate);
+      query.uploadedAt = {};
+      if (startDate) query.uploadedAt.$gte = new Date(startDate);
+      if (endDate) query.uploadedAt.$lte = new Date(endDate);
     }
     
     // Get total count
@@ -78,7 +82,7 @@ const adminService = {
     const slips = await PaymentSlip.find(query)
       .populate('user', 'fullName email phone')
       .populate('verifiedBy', 'fullName email')
-      .sort(sort)
+      .sort(sortBy)
       .skip(skip)
       .limit(limit)
       .lean();
@@ -149,6 +153,34 @@ const adminService = {
       totalPairs: user.totalPairs || 0,
       awardedRewards: user.awardedRewards || [],
       rewardIncome: user.rewardIncome || 0
+    };
+  },
+
+  async getDashboardStats() {
+    // Get total users (excluding admins)
+    const totalUsers = await User.countDocuments({ isAdmin: { $ne: true } });
+    
+    // Get total investment from approved payment slips (₹10,000+)
+    const totalInvestment = await PaymentSlip.aggregate([
+      { $match: { status: 'approved', amount: { $gte: 10000 } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    // Get total withdrawals
+    const totalWithdrawals = await Withdrawal.aggregate([
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    // Get payment slip counts
+    const totalPaymentSlips = await PaymentSlip.countDocuments({});
+    const pendingPaymentSlips = await PaymentSlip.countDocuments({ status: 'pending' });
+    
+    return {
+      totalUsers: totalUsers,
+      totalInvestment: totalInvestment.length > 0 ? totalInvestment[0].total : 0,
+      totalWithdrawals: totalWithdrawals.length > 0 ? totalWithdrawals[0].total : 0,
+      totalPaymentSlips: totalPaymentSlips,
+      pendingPaymentSlips: pendingPaymentSlips
     };
   },
 };

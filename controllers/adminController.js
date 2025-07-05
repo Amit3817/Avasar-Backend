@@ -47,4 +47,13 @@ export async function getUserRewards(req, res) {
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch user rewards', details: err.message });
   }
+}
+
+export async function getDashboardStats(req, res) {
+  try {
+    const stats = await adminService.getDashboardStats();
+    sendSuccess(res, stats, 'Dashboard stats fetched successfully.');
+  } catch (err) {
+    sendError(res, err.message, 500);
+  }
 } 

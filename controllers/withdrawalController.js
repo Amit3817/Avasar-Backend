@@ -68,7 +68,12 @@ export const getAllWithdrawals = async (req, res) => {
                     withdrawal.upiId ? 'UPI' : 'Not specified'
     }));
     
-    res.json({ success: true, data: { withdrawals: withdrawalsWithPaymentInfo }, message: 'All withdrawal requests fetched successfully!' });
+    // Use standardized response structure like other admin endpoints
+    res.json({ 
+      success: true, 
+      message: 'All withdrawal requests fetched successfully!',
+      data: withdrawalsWithPaymentInfo
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
