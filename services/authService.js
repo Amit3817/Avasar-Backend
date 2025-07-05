@@ -101,11 +101,23 @@ const authService = {
     return {
       token,
       user: {
+        _id: user._id,
         email: user.email,
         phone: user.phone,
         fullName: user.fullName,
         referralCode: user.referralCode,
-        isAdmin: user.isAdmin
+        isAdmin: user.isAdmin,
+        walletBalance: user.walletBalance,
+        totalEarnings: user.totalEarnings,
+        directReferrals: user.directReferrals,
+        rank: user.rank,
+        referralIncome: user.referralIncome,
+        matchingIncome: user.matchingIncome,
+        rewardIncome: user.rewardIncome,
+        investmentIncome: user.investmentIncome,
+        totalInvestment: user.totalInvestment,
+        teamSize: user.teamSize,
+        position: user.position
       }
     };
   },
@@ -132,11 +144,23 @@ const authService = {
     return {
       token,
       user: {
+        _id: user._id,
         email: user.email,
         phone: user.phone,
         fullName: user.fullName,
         referralCode: user.referralCode,
-        isAdmin: user.isAdmin
+        isAdmin: user.isAdmin,
+        walletBalance: user.walletBalance,
+        totalEarnings: user.totalEarnings,
+        directReferrals: user.directReferrals,
+        rank: user.rank,
+        referralIncome: user.referralIncome,
+        matchingIncome: user.matchingIncome,
+        rewardIncome: user.rewardIncome,
+        investmentIncome: user.investmentIncome,
+        totalInvestment: user.totalInvestment,
+        teamSize: user.teamSize,
+        position: user.position
       }
     };
   },

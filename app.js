@@ -18,6 +18,8 @@ import userRoutes from './routes/user.js';
 import paymentRoutes from './routes/payment.js';
 import adminRoutes from './routes/admin.js';
 import withdrawalRoutes from './routes/withdrawal.js';
+import contactRoutes from './routes/contact.js';
+import investmentRoutes from './routes/investment.js';
 import logger from './config/logger.js';
 
 // Validate environment variables
@@ -83,6 +85,8 @@ app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);
+app.use('/api/contact', contactRoutes);
+app.use('/api/investment', investmentRoutes);
 
 // Error-handling middleware
 app.use((err, req, res, next) => {
