@@ -11,6 +11,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpecs from './config/swagger.js';
 import { validateEnvironment, getEnvironmentInfo } from './config/envValidation.js';
+import logger from './config/logger.js';
 dotenv.config();
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
