@@ -13,6 +13,9 @@ function validateEmail(email) {
 function validatePhone(phone) {
   return /^\d{10}$/.test(phone);
 }
+function validateReferralCode(referralCode) {
+  return /^[A-Z0-9]{8}$/.test(referralCode);
+}
 
 const authService = {
   async register({ fullName, email, phone, password, referralCode, isAdmin, position }) {
@@ -20,31 +23,68 @@ const authService = {
       throw new Error('Please fill in all required fields.');
     if (!validateEmail(email)) throw new Error('Please enter a valid email address.');
     if (!validatePhone(phone)) throw new Error('Please enter a valid 10-digit phone number.');
-    if (password.length < 6) throw new Error('Password must be at least 6 characters long.');
+    if (password.length < 8) throw new Error('Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character.');
+    
     let refUser = null;
     if (referralCode) {
+      // Validate referral code format
+      if (!validateReferralCode(referralCode)) {
+        throw new Error('Invalid referral code format. Referral code must be exactly 8 characters with uppercase letters and numbers only.');
+      }
+      
+      // Check if referral code exists
       refUser = await User.findOne({ 'referral.referralCode': referralCode });
       if (!refUser) throw new Error('Referral code not found. Please check and try again.');
+      
+      // Check if user is trying to use their own referral code (for future registrations)
+      // This would be relevant if we allow users to see their own referral code during registration
+      
+      // Validate position is required when referral code is provided
       if (!position || !['left', 'right'].includes(position)) {
         throw new Error('Please select a position (left or right) when using a referral code.');
       }
+      
+      // Check if the referrer has available positions
+      const leftCount = refUser.referral?.leftChildren?.length || 0;
+      const rightCount = refUser.referral?.rightChildren?.length || 0;
+      
+      if (position === 'left' && leftCount >= 1) {
+        throw new Error('Left position is already occupied. Please choose right position or use a different referral code.');
+      }
+      
+      if (position === 'right' && rightCount >= 1) {
+        throw new Error('Right position is already occupied. Please choose left position or use a different referral code.');
+      }
     }
+    
     // OTP rate limit (by phone and email)
     const otpKey = `${phone || ''}|${email || ''}`;
     if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
       throw new Error('OTP recently sent. Please wait before requesting again.');
     otpRateLimit[otpKey] = Date.now();
+    
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
     const newReferralCode = await generateUniqueReferralCode();
+    
     const user = await User.create({
-      profile: { fullName },
-      auth: { email },
-      phone,
-      password: hashedPassword, otp, otpExpires,
-      referredBy: refUser ? refUser._id : null, isAdmin: !!isAdmin, referralCode: newReferralCode,
-      position: refUser ? position : null
+      profile: { 
+        fullName,
+        phone,
+        position: refUser ? position : null
+      },
+      auth: { 
+        email, 
+        password: hashedPassword, 
+        otp, 
+        otpExpires,
+        isAdmin: !!isAdmin
+      },
+      referral: {
+        referralCode: newReferralCode,
+        referredBy: refUser ? refUser._id : null
+      }
     });
     // Update referrer's leftChildren/rightChildren array
     if (refUser) {
@@ -66,26 +106,26 @@ const authService = {
   },
 
   async verifyOtp({ email, otp }) {
-    const user = await User.findOne({ auth: { email } });
+    const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No account found with this email.');
     const MAX_OTP_ATTEMPTS = 5;
     const OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
     if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
       throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
     }
-    if (user.otp !== otp || user.otpExpires < new Date()) {
-      user.otpAttempts = (user.otpAttempts || 0) + 1;
-      if (user.otpAttempts >= MAX_OTP_ATTEMPTS) {
-        user.otpLockedUntil = new Date(Date.now() + OTP_LOCK_TIME);
+    if (user.auth.otp !== otp || user.auth.otpExpires < new Date()) {
+      user.auth.otpAttempts = (user.auth.otpAttempts || 0) + 1;
+      if (user.auth.otpAttempts >= MAX_OTP_ATTEMPTS) {
+        user.auth.otpLockedUntil = new Date(Date.now() + OTP_LOCK_TIME);
       }
       await user.save();
       throw new Error('Invalid or expired OTP. Please check your email and try again.');
     }
     user.auth.isVerified = true;
-    user.otp = null;
-    user.otpExpires = null;
-    user.otpAttempts = 0;
-    user.otpLockedUntil = null;
+    user.auth.otp = null;
+    user.auth.otpExpires = null;
+    user.auth.otpAttempts = 0;
+    user.auth.otpLockedUntil = null;
     await user.save();
     
     // Enhanced JWT with issuer and audience
@@ -125,10 +165,10 @@ const authService = {
   },
 
   async login({ email, password }) {
-    const user = await User.findOne({ auth: { email } });
+    const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No account found with this email address.');
     if (!user.auth.isVerified) throw new Error('Your email is not verified. Please verify your email with the OTP sent during registration.');
-    const match = await bcrypt.compare(password, user.password);
+    const match = await bcrypt.compare(password, user.auth.password);
     if (!match) throw new Error('Incorrect password. Please try again.');
     
     // Enhanced JWT with issuer and audience
@@ -168,15 +208,15 @@ const authService = {
   },
 
   async resendOtp({ email }) {
-    const user = await User.findOne({ auth: { email } });
+    const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No account found with this email.');
     const otpKey = `${user.profile?.phone || ''}|${user.auth?.email || ''}`;
     if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
       throw new Error('OTP was recently sent. Please wait before requesting again.');
     otpRateLimit[otpKey] = Date.now();
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.auth.otp = otp;
+    user.auth.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
     await sendOtp(user.auth?.email, otp);
     return true;

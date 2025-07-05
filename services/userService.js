@@ -5,10 +5,18 @@ import investmentService from './investmentService.js';
 const userService = {
   async getProfile(userId) {
     const user = await User.findById(userId)
+      .select('profile auth referral income investment system createdAt')
       .populate('referral.referredBy', 'profile.fullName auth.email')
       .lean();
     if (!user) throw new Error('User not found');
-    return user;
+    
+    // Ensure isAdmin is properly accessible
+    const userWithVirtuals = {
+      ...user,
+      isAdmin: user.auth?.isAdmin || false
+    };
+    
+    return userWithVirtuals;
   },
 
   async updateProfile(userId, update) {
@@ -39,11 +47,18 @@ const userService = {
 
 async function getUserProfile(userId) {
   const user = await User.findById(userId)
-          .select('profile.fullName auth.email profile.phone profile.profilePicture referral.referredBy income.walletBalance investment.totalInvestment income.investmentIncome income.referralIncome income.matchingIncome income.rewardIncome income.investmentReferralPrincipalIncome income.investmentReferralReturnIncome referral.directReferralCount createdAt')
+          .select('profile.fullName auth.email auth.isAdmin profile.phone profile.profilePicture referral.referredBy income.walletBalance investment.totalInvestment income.investmentIncome income.referralIncome income.matchingIncome income.rewardIncome income.investmentReferralPrincipalIncome income.investmentReferralReturnIncome referral.directReferralCount createdAt')
           .populate('referral.referredBy', 'profile.fullName auth.email')
     .lean();
   if (!user) throw new Error('User not found');
-  return user;
+  
+  // Ensure isAdmin is properly accessible
+  const userWithVirtuals = {
+    ...user,
+    isAdmin: user.auth?.isAdmin || false
+  };
+  
+  return userWithVirtuals;
 }
 
 export default {

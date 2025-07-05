@@ -23,10 +23,10 @@ export const register = async (req, res) => {
     res.json({ message: 'Registration successful! An OTP has been sent to your email.' });
   } catch (err) {
     if (err.code === 11000) {
-      if (err.keyPattern && err.keyPattern.email) {
+      if (err.keyPattern && (err.keyPattern['auth.email'] || err.keyPattern.email)) {
         return res.status(400).json({ error: 'This email is already registered. Please log in or use a different email address.' });
       }
-      if (err.keyPattern && err.keyPattern.phone) {
+      if (err.keyPattern && (err.keyPattern['profile.phone'] || err.keyPattern.phone)) {
         return res.status(400).json({ error: 'This phone number is already registered. Please log in or use a different phone number.' });
       }
       return res.status(400).json({ error: 'Duplicate entry. Please use different details.' });

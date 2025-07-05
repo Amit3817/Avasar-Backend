@@ -48,8 +48,8 @@ export const registerValidator = [
   ...passwordValidation,
   body('referralCode')
     .optional()
-    .isLength({ min: 6, max: 10 })
-    .withMessage('Referral code must be between 6 and 10 characters')
+    .isLength({ min: 8, max: 8 })
+    .withMessage('Referral code must be exactly 8 characters')
     .matches(/^[A-Z0-9]+$/)
     .withMessage('Referral code can only contain uppercase letters and numbers')
     .trim()

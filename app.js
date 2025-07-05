@@ -6,12 +6,14 @@ import fs from 'fs';
 import path from 'path';
 import morgan from 'morgan';
 import cron from 'node-cron';
+import rateLimit from 'express-rate-limit';
 import User from './models/User.js';
 import mongoSanitize from 'express-mongo-sanitize';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpecs from './config/swagger.js';
 import { validateEnvironment, getEnvironmentInfo } from './config/envValidation.js';
 import logger from './config/logger.js';
+import productionConfig from './config/production.js';
 dotenv.config();
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
@@ -31,20 +33,15 @@ try {
 
 const app = express();
 
-// Basic middleware
-const corsOptions = {
+// CORS configuration - Always use production mode
+const isProduction = true;
+const allowedOrigins = productionConfig.cors.allowedOrigins;
+
+app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      return callback(null, true);
-    }
+    if (!origin) return callback(null, true);
     
-    // Force production mode - always use production CORS rules
-    const allowedOrigins = [
-      process.env.FRONTEND_URL || 'https://avasar.netlify.app',
-      'https://avasar.netlify.app',
-      'https://avasar-growth-platform.vercel.app'
-    ];
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -54,25 +51,11 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept']
-};
+}));
+// Rate limiting - Always enabled in production mode
+const limiter = rateLimit(productionConfig.rateLimit);
+app.use('/api/', limiter);
 
-app.use(cors(corsOptions));
-
-// Additional CORS headers for preflight requests
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-  
-  next();
-});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static('uploads'));
@@ -106,7 +89,7 @@ app.use((req, res, next) => {
   next();
 });
 
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI, productionConfig.database.options)
   .then(() => logger.info('MongoDB connected'))
   .catch(err => logger.error('MongoDB connection error:', err));
 

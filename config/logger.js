@@ -15,7 +15,7 @@ const logger = createLogger({
   ]
 });
 
-if (process.env.NODE_ENV !== 'production') {
+if (false) { // Always use production logging
   logger.add(new transports.Console({
     format: format.combine(format.colorize(), format.simple())
   }));

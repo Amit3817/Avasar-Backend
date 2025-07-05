@@ -18,7 +18,11 @@ const options = {
     },
     servers: [
       {
-        url: process.env.API_URL || 'http://localhost:5000',
+        url: process.env.API_URL || 'https://avasar-backend.onrender.com',
+        description: 'Production server'
+      },
+      {
+        url: 'http://localhost:5000',
         description: 'Development server'
       }
     ],
