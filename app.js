@@ -35,34 +35,21 @@ const app = express();
 // Basic middleware
 const corsOptions = {
   origin: function (origin, callback) {
-    console.log('CORS Debug - Checking origin:', origin);
-    console.log('CORS Debug - NODE_ENV:', process.env.NODE_ENV);
-    
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
-      console.log('CORS Debug - No origin, allowing');
       return callback(null, true);
     }
     
-    // For local development, allow all localhost origins
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      console.log('CORS Debug - Localhost origin, allowing');
-      return callback(null, true);
-    }
-    
-    if (process.env.NODE_ENV === 'production') {
-      const allowedOrigins = [process.env.FRONTEND_URL || 'https://avasar-growth-platform.vercel.app'];
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        console.log('CORS Debug - Production origin allowed');
-        callback(null, true);
-      } else {
-        console.log('CORS Debug - Production origin not allowed');
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
-      // Allow all origins in development
-      console.log('CORS Debug - Development mode, allowing all origins');
+    // Force production mode - always use production CORS rules
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || 'https://avasar.netlify.app',
+      'https://avasar.netlify.app',
+      'https://avasar-growth-platform.vercel.app'
+    ];
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
@@ -74,10 +61,6 @@ app.use(cors(corsOptions));
 
 // Additional CORS headers for preflight requests
 app.use((req, res, next) => {
-  console.log('CORS Debug - Origin:', req.headers.origin);
-  console.log('CORS Debug - Method:', req.method);
-  console.log('CORS Debug - NODE_ENV:', process.env.NODE_ENV);
-  
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -85,7 +68,6 @@ app.use((req, res, next) => {
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    console.log('CORS Debug - Handling OPTIONS request');
     res.status(200).end();
     return;
   }
