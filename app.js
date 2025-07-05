@@ -24,7 +24,7 @@ import withdrawalRoutes from './routes/withdrawal.js';
 import contactRoutes from './routes/contact.js';
 import investmentRoutes from './routes/investment.js';
 
-// Validate environment variables (only in production)
+// Validate environment variabdles (only in production)
 if (process.env.NODE_ENV === 'production') {
   try {
     validateEnvironment();

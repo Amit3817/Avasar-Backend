@@ -1,5 +1,4 @@
 import investmentService from '../services/investmentService.js';
-import { addInvestmentBonuses } from '../utils/referral.js';
 import PaymentSlip from '../models/PaymentSlip.js';
 import User from '../models/User.js';
 import Investment from '../models/Investment.js';

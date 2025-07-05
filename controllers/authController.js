@@ -2,7 +2,7 @@ import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { sendOtp } from '../utils/sendOtp.js';
-import { generateUniqueReferralCode, addReferralIncome, addMatchingIncome, addRewardIncome } from '../utils/referral.js';
+import { generateUniqueReferralCode } from '../utils/referral.js';
 import authService from '../services/authService.js';
 import { trackOtpAttempt, resetOtpAttempts } from '../middleware/otpLimiter.js';
 

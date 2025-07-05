@@ -150,11 +150,11 @@ class InvestmentService {
 
       // Update user's total investment
       await User.findByIdAndUpdate(userId, {
-        $inc: { totalInvestment: amount },
-        investmentStartDate: startDate,
-        investmentEndDate: endDate,
-        investmentIsLocked: true,
-        $inc: { lockedInvestmentAmount: amount }
+        $inc: { 'investment.totalInvestment': amount },
+        'investment.investmentStartDate': startDate,
+        'investment.investmentEndDate': endDate,
+        'investment.investmentIsLocked': true,
+        $inc: { 'investment.lockedInvestmentAmount': amount }
       });
 
       return investment;
@@ -193,8 +193,8 @@ class InvestmentService {
             filter: { _id: inv.user._id },
             update: {
               $inc: {
-                investmentIncome: monthlyROI,
-                walletBalance: monthlyROI
+                'income.investmentIncome': monthlyROI,
+                'income.walletBalance': monthlyROI
               }
             }
           }
@@ -268,53 +268,62 @@ class InvestmentService {
       const user = await User.findById(slip.user).session(session);
       if (!user) throw new Error('User not found');
       
+      const investmentAmount = Number(slip.amount);
       const now = new Date();
       const endDate = new Date(now);
       endDate.setMonth(endDate.getMonth() + 24); // 24 months from now
       
       // Check if investment already exists for this user
       const existingInvestment = await Investment.findOne({ user: slip.user, active: true }).session(session);
+      
       if (existingInvestment) {
-        // Update existing investment
-        existingInvestment.amount = Math.max(existingInvestment.amount, Number(slip.amount));
+        // Update existing investment - add to current amount
+        const newTotalAmount = existingInvestment.amount + investmentAmount;
+        existingInvestment.amount = newTotalAmount;
         existingInvestment.endDate = endDate;
         await existingInvestment.save({ session });
         
-        // Update user's total investment
+        // Update user's total investment - add to current total
         await User.findByIdAndUpdate(slip.user, {
-          totalInvestment: Number(slip.amount),
-          investmentEndDate: endDate
+          $inc: { 'investment.totalInvestment': investmentAmount },
+          'investment.investmentEndDate': endDate
         }, { session });
       } else {
         // Create new investment
-        await User.findByIdAndUpdate(slip.user, {
-          totalInvestment: Number(slip.amount),
-          investmentStartDate: now,
-          investmentEndDate: endDate,
-          investmentIncome: 0
-        }, { session });
-        
         await Investment.create([{ 
           user: user._id, 
-          amount: Number(slip.amount), 
+          amount: investmentAmount, 
           startDate: now,
           endDate: endDate,
           monthsPaid: 0, 
           active: true,
           isLocked: true,
-          withdrawalRestriction: Number(slip.amount)
+          withdrawalRestriction: investmentAmount,
+          lockInPeriod: 24
         }], { session });
+        
+        // Update user's total investment
+        await User.findByIdAndUpdate(slip.user, {
+          'investment.totalInvestment': investmentAmount,
+          'investment.investmentStartDate': now,
+          'investment.investmentEndDate': endDate,
+          'investment.investmentIsLocked': true,
+          'investment.lockedInvestmentAmount': investmentAmount
+        }, { session });
       }
       
       await session.commitTransaction();
       
       // Process investment bonuses after transaction commit
       try {
-        const bonusResult = await referralService.processInvestmentBonuses(slip.user, Number(slip.amount));
+        const bonusResult = await referralService.processInvestmentBonuses(slip.user, investmentAmount);
         if (bonusResult.success) {
+          console.log(`Investment bonuses processed successfully for user ${slip.user}: ${bonusResult.oneTimeUpdates} one-time bonuses, ${bonusResult.monthlySchedules} monthly schedules`);
         } else {
+          console.error(`Failed to process investment bonuses for user ${slip.user}:`, bonusResult.message);
         }
       } catch (bonusError) {
+        console.error(`Error processing investment bonuses for user ${slip.user}:`, bonusError.message);
       }
       
       return slip;
