@@ -24,9 +24,10 @@ router.get('/profile', requireAuth, async (req, res) => {
     // Calculate and update team stats
     const teamStats = await referralService.updateUserTeamStats(req.user._id);
     
-    // Merge team stats with user data
+    // Merge team stats with user data and ensure admin status is at root level
     const userWithStats = {
       ...user,
+      isAdmin: user.auth?.isAdmin || false, // Ensure isAdmin is at root level
       directReferrals: teamStats.directReferrals,
       teamSize: teamStats.teamSize
     };

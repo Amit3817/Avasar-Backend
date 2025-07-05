@@ -64,8 +64,11 @@ export const requireAuth = async (req, res, next) => {
       });
     }
 
-    // Add user info to request
-    req.user = user;
+    // Add user info to request with admin status from both token and database
+    req.user = {
+      ...user.toObject(),
+      isAdmin: decoded.isAdmin || user.auth?.isAdmin || false
+    };
     req.token = token;
     
     next();
@@ -93,7 +96,10 @@ export const requireAuth = async (req, res, next) => {
 
 // Admin authorization middleware
 export const requireAdmin = (req, res, next) => {
-  if (!req.user.auth?.isAdmin) {
+  // Check admin status from both the flattened isAdmin field and the nested auth.isAdmin
+  const isAdmin = req.user.isAdmin || req.user.auth?.isAdmin;
+  
+  if (!isAdmin) {
     return res.status(403).json({ 
       error: 'Admin access required',
       message: 'You do not have permission to access this resource'
