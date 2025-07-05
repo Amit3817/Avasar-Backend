@@ -24,11 +24,14 @@ import withdrawalRoutes from './routes/withdrawal.js';
 import contactRoutes from './routes/contact.js';
 import investmentRoutes from './routes/investment.js';
 
-// Validate environment variables
-try {
-  validateEnvironment();
-} catch (error) {
-  process.exit(1);
+// Validate environment variables (only in production)
+if (process.env.NODE_ENV === 'production') {
+  try {
+    validateEnvironment();
+  } catch (error) {
+    console.error('Environment validation failed:', error.message);
+    process.exit(1);
+  }
 }
 
 const app = express();
