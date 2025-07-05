@@ -30,9 +30,10 @@ export const productionConfig = {
   database: {
     options: {
       maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      bufferMaxEntries: 0
+      serverSelectionTimeoutMS: 30000, // Increased from 5000ms
+      socketTimeoutMS: 60000, // Increased from 45000ms
+      connectTimeoutMS: 30000, // Added connection timeout
+      maxIdleTimeMS: 30000 // Added max idle time
     }
   },
   

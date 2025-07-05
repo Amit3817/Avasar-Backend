@@ -84,20 +84,27 @@ app.use((req, res, next) => {
   const start = Date.now();
   const userInfo = req.user ? `${req.user.auth?.email} (${req.user._id})` : 'anonymous';
   
-  logger.info(`${req.method} ${req.url} - User: ${userInfo} - IP: ${req.ip}`);
+  console.log(`${req.method} ${req.url} - User: ${userInfo} - IP: ${req.ip}`);
   
   // Log response time
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.url} - ${res.statusCode} - ${duration}ms`);
+    console.log(`${req.method} ${req.url} - ${res.statusCode} - ${duration}ms`);
   });
   
   next();
 });
 
-mongoose.connect(process.env.MONGODB_URI, productionConfig.database.options)
-  .then(() => logger.info('MongoDB connected'))
-  .catch(err => logger.error('MongoDB connection error:', err));
+// MongoDB connection with fallback for development
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/avasar-dev';
+mongoose.connect(mongoUri, productionConfig.database.options)
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Continuing without MongoDB for development...');
+    }
+  });
 
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -109,30 +116,30 @@ app.use('/api/investment', investmentRoutes);
 
 // Error-handling middleware
 app.use((err, req, res, next) => {
-  logger.error(err.stack || err);
+  console.error('Error:', err.stack || err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // Add this at the end of the file
 process.on('uncaughtException', (err) => {
-  logger.error('UNCAUGHT EXCEPTION:', err);
+  console.error('UNCAUGHT EXCEPTION:', err);
   process.exit(1); // Optional: exit process
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('UNHANDLED REJECTION:', reason);
+  console.error('UNHANDLED REJECTION:', reason);
 });
 
 // Cron job: reset matchingPairsToday for all users at midnight
 cron.schedule('0 0 * * *', async () => {
   try {
     await User.updateMany({}, { $set: { 'system.matchingPairsToday': {} } });
-    logger.info('Reset matchingPairsToday for all users.');
+    console.log('Reset matchingPairsToday for all users.');
   } catch (err) {
-    logger.error('Error resetting matchingPairsToday:', err);
+    console.error('Error resetting matchingPairsToday:', err);
   }
 });
 
@@ -141,9 +148,9 @@ cron.schedule('1 0 1 * *', async () => {
   try {
     const investmentService = (await import('./services/investmentService.js')).default;
     const processed = await investmentService.processMonthlyPayouts();
-    logger.info(`Monthly investment payouts processed for ${processed} investments.`);
+    console.log(`Monthly investment payouts processed for ${processed} investments.`);
   } catch (err) {
-    logger.error('Error processing monthly investment payouts:', err);
+    console.error('Error processing monthly investment payouts:', err);
   }
 });
 
