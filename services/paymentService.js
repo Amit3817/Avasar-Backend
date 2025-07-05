@@ -27,9 +27,8 @@ const paymentService = {
   },
 
   async getSlip(userId) {
-    const slips = await PaymentSlip.find({ user: userId });
-    if (!slips || slips.length === 0) throw new Error('No payment slips found.');
-    return slips;
+    const slips = await PaymentSlip.find({ user: userId }).sort({ uploadedAt: -1 });
+    return slips || [];
   },
 
   async adminUploadSlip({ userId, file, amount, method, transactionId, adminId }) {

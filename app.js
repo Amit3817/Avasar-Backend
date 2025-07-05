@@ -20,13 +20,11 @@ import adminRoutes from './routes/admin.js';
 import withdrawalRoutes from './routes/withdrawal.js';
 import contactRoutes from './routes/contact.js';
 import investmentRoutes from './routes/investment.js';
-import logger from './config/logger.js';
 
 // Validate environment variables
 try {
   validateEnvironment();
 } catch (error) {
-  logger.error('Environment validation failed:', error.message);
   process.exit(1);
 }
 
@@ -94,7 +92,7 @@ const logStream = fs.createWriteStream(path.join(__dirname, 'server.log'), { fla
 // Enhanced request logging
 app.use((req, res, next) => {
   const start = Date.now();
-  const userInfo = req.user ? `${req.user.email} (${req.user._id})` : 'anonymous';
+  const userInfo = req.user ? `${req.user.auth?.email} (${req.user._id})` : 'anonymous';
   
   logger.info(`${req.method} ${req.url} - User: ${userInfo} - IP: ${req.ip}`);
   
@@ -141,7 +139,7 @@ process.on('unhandledRejection', (reason) => {
 // Cron job: reset matchingPairsToday for all users at midnight
 cron.schedule('0 0 * * *', async () => {
   try {
-    await User.updateMany({}, { $set: { matchingPairsToday: {} } });
+    await User.updateMany({}, { $set: { 'system.matchingPairsToday': {} } });
     logger.info('Reset matchingPairsToday for all users.');
   } catch (err) {
     logger.error('Error resetting matchingPairsToday:', err);

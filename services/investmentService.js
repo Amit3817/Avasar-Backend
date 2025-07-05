@@ -3,7 +3,6 @@ import Investment from '../models/Investment.js';
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
 import referralService from './referralService.js';
-import logger from '../config/logger.js';
 
 class InvestmentService {
   // Calculate investment lock-in status and withdrawal restrictions
@@ -43,7 +42,7 @@ class InvestmentService {
       user.availableForWithdrawal = totalAvailableAmount;
 
       // Calculate available wallet balance for withdrawal
-      const totalWalletBalance = user.walletBalance || 0;
+      const totalWalletBalance = user.income?.walletBalance || 0;
       const availableForWithdrawal = Math.max(0, totalWalletBalance - totalLockedAmount);
       user.availableForWithdrawal = availableForWithdrawal;
 
@@ -117,15 +116,15 @@ class InvestmentService {
       const user = await User.findById(userId);
 
       return {
-        totalInvestment: user.totalInvestment || 0,
+        totalInvestment: user.investment?.totalInvestment || 0,
         lockedAmount: status.lockedAmount,
         availableAmount: status.availableAmount,
         totalWalletBalance: status.totalWalletBalance,
         availableForWithdrawal: status.availableForWithdrawal,
         isLocked: status.isLocked,
         investments: status.investments,
-        investmentIncome: user.investmentIncome || 0,
-        referralIncome: (user.referralIncome || 0) + (user.matchingIncome || 0) + (user.rewardIncome || 0)
+        investmentIncome: user.income?.investmentIncome || 0,
+        referralIncome: (user.income?.referralIncome || 0) + (user.income?.matchingIncome || 0) + (user.income?.rewardIncome || 0)
       };
     } catch (error) {
       throw new Error(`Failed to get investment summary: ${error.message}`);
@@ -201,12 +200,9 @@ class InvestmentService {
           }
         });
         
-        logger.info(`Processed monthly ROI of ₹${monthlyROI} for investment ${inv._id} (user: ${inv.user._id})`);
-        
         // Deactivate investment after 24 months
         if (inv.monthsPaid >= 24) {
           inv.active = false;
-          logger.info(`Investment ${inv._id} deactivated after 24 months`);
         }
         
         // Prepare investment updates
@@ -240,19 +236,14 @@ class InvestmentService {
       try {
         const result = await referralService.processMonthlyInvestmentReturns();
         if (result.success) {
-          logger.info(`Monthly investment returns processed: ${result.processedCount} payouts`);
         } else {
-          logger.warn(`Monthly investment returns processing failed: ${result.message}`);
         }
       } catch (error) {
-        logger.error('Error processing monthly investment returns:', error);
       }
       
-      logger.info(`Monthly payouts completed: ${processed} investments processed`);
       return processed;
     } catch (error) {
       await session.abortTransaction();
-      logger.error('Error processing monthly payouts:', error);
       throw error;
     } finally {
       session.endSession();
@@ -294,8 +285,6 @@ class InvestmentService {
           totalInvestment: Number(slip.amount),
           investmentEndDate: endDate
         }, { session });
-        
-        logger.info(`Updated existing investment for user ${slip.user}: amount=${existingInvestment.amount}, totalInvestment=${slip.amount}`);
       } else {
         // Create new investment
         await User.findByIdAndUpdate(slip.user, {
@@ -315,8 +304,6 @@ class InvestmentService {
           isLocked: true,
           withdrawalRestriction: Number(slip.amount)
         }], { session });
-        
-        logger.info(`Created new investment for user ${slip.user}: amount=${slip.amount}, totalInvestment=${slip.amount}`);
       }
       
       await session.commitTransaction();
@@ -325,19 +312,14 @@ class InvestmentService {
       try {
         const bonusResult = await referralService.processInvestmentBonuses(slip.user, Number(slip.amount));
         if (bonusResult.success) {
-          logger.info(`Investment bonuses processed successfully for user ${slip.user}: ${bonusResult.oneTimeUpdates} one-time + ${bonusResult.monthlySchedules} monthly schedules`);
         } else {
-          logger.warn(`Investment bonus processing failed for user ${slip.user}: ${bonusResult.message}`);
         }
       } catch (bonusError) {
-        logger.error(`Error processing investment bonuses for user ${slip.user}:`, bonusError);
-        // Don't fail the investment approval if bonus processing fails
       }
       
       return slip;
     } catch (error) {
       await session.abortTransaction();
-      logger.error(`Error approving investment for slip ${slipId}:`, error);
       throw error;
     } finally {
       session.endSession();

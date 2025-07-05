@@ -5,7 +5,7 @@ import investmentService from './investmentService.js';
 const userService = {
   async getProfile(userId) {
     const user = await User.findById(userId)
-      .populate('referredBy', 'fullName email')
+      .populate('referral.referredBy', 'profile.fullName auth.email')
       .lean();
     if (!user) throw new Error('User not found');
     return user;
@@ -28,7 +28,8 @@ const userService = {
     if (!user) throw new Error('User not found');
     
     // Atomically deduct balance
-    user.walletBalance -= amount;
+    user.income = user.income || {};
+    user.income.walletBalance -= amount;
     await user.save();
     
     const withdrawal = await Withdrawal.create({ user: userId, amount, remarks });
@@ -38,8 +39,8 @@ const userService = {
 
 async function getUserProfile(userId) {
   const user = await User.findById(userId)
-    .select('fullName email phone profilePicture referredBy walletBalance totalInvestment investmentIncome referralIncome matchingIncome rewardIncome investmentReferralPrincipalIncome investmentReferralReturnIncome directReferralCount createdAt')
-    .populate('referredBy', 'fullName email')
+          .select('profile.fullName auth.email profile.phone profile.profilePicture referral.referredBy income.walletBalance investment.totalInvestment income.investmentIncome income.referralIncome income.matchingIncome income.rewardIncome income.investmentReferralPrincipalIncome income.investmentReferralReturnIncome referral.directReferralCount createdAt')
+          .populate('referral.referredBy', 'profile.fullName auth.email')
     .lean();
   if (!user) throw new Error('User not found');
   return user;

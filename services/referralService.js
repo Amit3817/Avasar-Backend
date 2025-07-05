@@ -11,26 +11,27 @@ import {
   MONTHLY_ROI_PERCENT,
   INVESTMENT_BONUS_MONTHS
 } from '../config/constants.js';
-import logger from '../config/logger.js';
 import mongoose from 'mongoose';
 
 const referralService = {
-  // Get direct referrals count for a user
+  // Get direct referrals for a user
   async getDirectReferrals(userId) {
-    return await User.countDocuments({ referredBy: userId });
+    return await User.find({ 'referral.referredBy': userId }).select('profile.fullName auth.email profile.phone createdAt profile.position');
   },
 
   // Get indirect referrals for a user (recursive)
   async getIndirectReferrals(userId) {
     async function getIndirect(uId) {
-      const directRefs = await User.find({ referredBy: uId }).select('_id');
-      let total = directRefs.length;
+      const directRefs = await User.find({ 'referral.referredBy': uId }).select('_id');
+      let allIndirect = [...directRefs];
       for (const ref of directRefs) {
-        total += await getIndirect(ref._id);
+        const indirect = await getIndirect(ref._id);
+        allIndirect = [...allIndirect, ...indirect];
       }
-      return total;
+      return allIndirect;
     }
-    return await getIndirect(userId);
+    const indirectIds = await getIndirect(userId);
+    return await User.find({ _id: { $in: indirectIds.map(u => u._id) } }).select('profile.fullName auth.email profile.phone createdAt profile.position');
   },
 
   // Get indirect referrals for a user (non-recursive, with max level)
@@ -39,7 +40,7 @@ const referralService = {
     let currentLevel = [userId];
     
     for (let level = 1; level <= maxLevel; level++) {
-      const nextLevel = await User.find({ referredBy: { $in: currentLevel } }).select('_id');
+      const nextLevel = await User.find({ 'referral.referredBy': { $in: currentLevel } }).select('_id');
       total += nextLevel.length;
       currentLevel = nextLevel.map(u => u._id);
       if (currentLevel.length === 0) break;
@@ -48,19 +49,33 @@ const referralService = {
     return total;
   },
 
+  // Get direct left referrals (leftChildren)
+  async getDirectLeft(userId) {
+    const user = await User.findById(userId).select('referral.leftChildren');
+    if (!user) return [];
+    return await User.find({ _id: { $in: user.referral?.leftChildren || [] } }).select('profile.fullName auth.email profile.phone createdAt profile.position');
+  },
+
+  // Get direct right referrals (rightChildren)
+  async getDirectRight(userId) {
+    const user = await User.findById(userId).select('referral.rightChildren');
+    if (!user) return [];
+    return await User.find({ _id: { $in: user.referral?.rightChildren || [] } }).select('profile.fullName auth.email profile.phone createdAt profile.position');
+  },
+
   // Check and award rewards for user
   async checkAndAwardRewards(user, session = null) {
     for (const milestone of REWARD_MILESTONES) {
-      if (user.totalPairs >= milestone.pairs && !(user.awardedRewards || []).includes(milestone.name)) {
+      if (user.system?.totalPairs >= milestone.pairs && !(user.system?.awardedRewards || []).includes(milestone.name)) {
         // Award reward (add to awardedRewards, increment rewardIncome if cash)
-        user.awardedRewards = user.awardedRewards || [];
-        user.awardedRewards.push(milestone.name);
+        user.system = user.system || {};
+        user.system.awardedRewards = user.system.awardedRewards || [];
+        user.system.awardedRewards.push(milestone.name);
         if (typeof milestone.reward === 'number') {
-          user.rewardIncome = (user.rewardIncome || 0) + milestone.reward;
-          user.walletBalance = (user.walletBalance || 0) + milestone.reward;
-          logger.info(`Awarded ${milestone.name} reward of ₹${milestone.reward} to user ${user._id} for ${milestone.pairs} pairs`);
+          user.income = user.income || {};
+          user.income.rewardIncome = (user.income.rewardIncome || 0) + milestone.reward;
+          user.income.walletBalance = (user.income.walletBalance || 0) + milestone.reward;
         } else if (milestone.reward) {
-          logger.info(`Awarded ${milestone.name} reward: ${milestone.reward} to user ${user._id} for ${milestone.pairs} pairs`);
         }
         await user.save(session ? { session } : {});
       }
@@ -109,7 +124,7 @@ const referralService = {
         if (!parent) break;
         
         const requiredDirects = DIRECT_REQS[level] || 0;
-        const directCount = await User.countDocuments({ referredBy: parent._id }).session(useSession);
+        const directCount = await User.countDocuments({ 'referral.referredBy': parent._id }).session(useSession);
         
         if (directCount < requiredDirects) continue;
         
@@ -123,9 +138,9 @@ const referralService = {
               filter: { _id: parent._id },
               update: {
                 $inc: {
-                  referralIncome: referralIncome,
-                  walletBalance: referralIncome,
-                  directReferralCount: level === 1 ? 1 : 0
+                  'income.referralIncome': referralIncome,
+                  'income.walletBalance': referralIncome,
+                  'referral.directReferralCount': level === 1 ? 1 : 0
                 }
               }
             }
@@ -133,17 +148,17 @@ const referralService = {
         }
         
         // Matching income (with daily limit check)
-        const currentPairsToday = parent.matchingPairsToday?.[today] || 0;
+        const currentPairsToday = parent.system?.matchingPairsToday?.[today] || 0;
         if (currentPairsToday < MAX_PAIRS_PER_DAY) {
           matchingOps.push({
             updateOne: {
               filter: { _id: parent._id },
               update: {
                 $inc: {
-                  matchingIncome: pairBonus,
-                  totalPairs: 1,
-                  walletBalance: pairBonus,
-                  [`matchingPairsToday.${today}`]: 1
+                  'income.matchingIncome': pairBonus,
+                  'system.totalPairs': 1,
+                  'income.walletBalance': pairBonus,
+                  [`system.matchingPairsToday.${today}`]: 1
                 }
               }
             }
@@ -171,7 +186,6 @@ const referralService = {
             await this.checkAndAwardRewards(updatedUser, useSession);
           }
         } catch (rewardError) {
-          logger.error(`Failed to check rewards for user ${userId}:`, rewardError);
           // Continue with other users
         }
       }
@@ -179,7 +193,6 @@ const referralService = {
       if (shouldCommit) {
         await useSession.commitTransaction();
       }
-      logger.info(`Registration income processed for user ${newUserId}: ${referralOps.length} referral + ${matchingOps.length} matching updates`);
       
       return { 
         success: true, 
@@ -191,7 +204,6 @@ const referralService = {
       if (shouldCommit) {
         await useSession.abortTransaction();
       }
-      logger.error('processRegistrationIncome transaction error:', err);
       throw err;
     } finally {
       if (shouldCommit) {
@@ -206,10 +218,10 @@ const referralService = {
     let currentUserId = userId;
     
     for (let level = 1; level <= 10; level++) {
-      const currentUser = await User.findById(currentUserId).select('referredBy').session(session);
-      if (!currentUser || !currentUser.referredBy) break;
+      const currentUser = await User.findById(currentUserId).select('referral.referredBy').session(session);
+      if (!currentUser || !currentUser.referral?.referredBy) break;
       
-      const parent = await User.findById(currentUser.referredBy).session(session);
+      const parent = await User.findById(currentUser.referral.referredBy).session(session);
       if (!parent) break;
       
       uplineChain.push(parent);
@@ -223,7 +235,6 @@ const referralService = {
   async processRewardIncome(userId) {
     // This function is now only called when milestones are reached
     // The actual reward processing is handled in checkAndAwardRewards()
-    logger.info(`Reward income processing triggered for user ${userId} - handled by milestone checks`);
   },
 
   // Optimized: Process investment bonuses for upline users
@@ -238,7 +249,6 @@ const referralService = {
       
       const currentUser = await User.findById(investorId).session(session);
       if (!currentUser) {
-        logger.error(`Investor not found: ${investorId}`);
         await session.abortTransaction();
         session.endSession();
         return { success: false, message: 'Investor not found' };
@@ -255,7 +265,7 @@ const referralService = {
         const parent = uplineChain[level - 1];
         if (!parent) break;
         
-        const directCount = await User.countDocuments({ referredBy: parent._id }).session(session);
+        const directCount = await User.countDocuments({ 'referral.referredBy': parent._id }).session(session);
         if (directCount < directReqs[level]) continue;
         
         // One-time investment referral bonus
@@ -311,7 +321,6 @@ const referralService = {
       }
       
       await session.commitTransaction();
-      logger.info(`Investment bonuses processed for investor ${investorId}: ${oneTimeBonusOps.length} updates, ${bonusUpdates.length} bonus schedules`);
       
       return {
         success: true,
@@ -321,7 +330,6 @@ const referralService = {
       };
     } catch (error) {
       await session.abortTransaction();
-      logger.error(`Error in processInvestmentBonuses for investor ${investorId}:`, error);
       throw error;
     } finally {
       session.endSession();
@@ -356,12 +364,12 @@ const referralService = {
             
             if (targetMonth === currentMonth && targetYear === currentYear) {
               // Award the monthly investment return bonus
-              user.investmentReferralReturnIncome = (user.investmentReferralReturnIncome || 0) + bonus.amount;
-              user.walletBalance = (user.walletBalance || 0) + bonus.amount;
+              user.income = user.income || {};
+              user.income.investmentReferralReturnIncome = (user.income.investmentReferralReturnIncome || 0) + bonus.amount;
+              user.income.walletBalance = (user.income.walletBalance || 0) + bonus.amount;
               bonus.awarded = true;
               updated = true;
               processedCount++;
-              logger.info(`Awarded investment return bonus of ₹${bonus.amount} to user ${user._id} for month ${bonus.month}`);
             }
           }
         }
@@ -370,14 +378,13 @@ const referralService = {
           try {
             await user.save({ session });
           } catch (saveError) {
-            logger.error(`Failed to save user ${user._id} after bonus update:`, saveError);
             // Continue with other users
           }
         }
       }
       
       await session.commitTransaction();
-      logger.info(`Processed ${processedCount} investment return payouts`);
+      
       return {
         success: true,
         message: 'Monthly investment returns processed successfully',
@@ -385,7 +392,6 @@ const referralService = {
       };
     } catch (error) {
       await session.abortTransaction();
-      logger.error('Error processing investment return payouts:', error);
       throw error;
     } finally {
       session.endSession();
@@ -395,8 +401,6 @@ const referralService = {
   // Process registration payment referral income
   async processRegistrationReferralIncome(userId, currentSlipId = null) {
     try {
-      logger.info(`Processing registration referral income for user ${userId}`);
-      
       // Check if this is the first approved registration payment (excluding current slip)
       const query = { 
         user: userId, 
@@ -412,17 +416,13 @@ const referralService = {
       const prevApproved = await PaymentSlip.findOne(query);
       
       if (!prevApproved) {
-        logger.info(`First registration payment for user ${userId}, triggering referral income`);
         // ✅ OPTIMIZED: Use combined function
         const result = await this.processRegistrationIncome(userId);
-        logger.info(`Registration referral income processed successfully for user ${userId}`);
         return result;
       } else {
-        logger.info(`Registration payment already processed for user ${userId}`);
         return { success: false, message: 'Registration already processed' };
       }
     } catch (error) {
-      logger.error(`Error processing registration referral income for user ${userId}:`, error);
       throw error;
     }
   },
@@ -430,12 +430,9 @@ const referralService = {
   // Process investment referral income
   async processInvestmentReferralIncome(userId, investmentAmount) {
     try {
-      logger.info(`Processing investment referral income for user ${userId} with amount ${investmentAmount}`);
       const result = await this.processInvestmentBonuses(userId, investmentAmount);
-      logger.info(`Investment referral income processed successfully for user ${userId}`);
       return result;
     } catch (error) {
-      logger.error(`Error processing investment referral income for user ${userId}:`, error);
       throw error;
     }
   },
@@ -447,19 +444,40 @@ const referralService = {
       if (!user) throw new Error('User not found');
 
       return {
-        referralIncome: user.referralIncome || 0,
-        matchingIncome: user.matchingIncome || 0,
-        rewardIncome: user.rewardIncome || 0,
-        investmentReferralIncome: user.investmentReferralIncome || 0,
-        investmentReferralPrincipalIncome: user.investmentReferralPrincipalIncome || 0,
-        investmentReferralReturnIncome: user.investmentReferralReturnIncome || 0,
+        referralIncome: user.income?.referralIncome || 0,
+        matchingIncome: user.income?.matchingIncome || 0,
+        rewardIncome: user.income?.rewardIncome || 0,
+        investmentReferralIncome: user.income?.investmentReferralIncome || 0,
+        investmentReferralPrincipalIncome: user.income?.investmentReferralPrincipalIncome || 0,
+        investmentReferralReturnIncome: user.income?.investmentReferralReturnIncome || 0,
         referralInvestmentPrincipal: user.referralInvestmentPrincipal || 0,
-        totalPairs: user.totalPairs || 0,
+        totalPairs: user.system?.totalPairs || 0,
         directReferralCount: user.directReferralCount || 0,
-        awardedRewards: user.awardedRewards || []
+        awardedRewards: user.system?.awardedRewards || []
       };
     } catch (error) {
-      logger.error(`Error getting referral summary for user ${userId}:`, error);
+      throw error;
+    }
+  },
+
+  // Calculate and update user's team statistics
+  async updateUserTeamStats(userId) {
+    try {
+      // Calculate direct referrals
+      const directCount = await User.countDocuments({ 'referral.referredBy': userId });
+      
+      // Calculate total team size (direct + indirect)
+      const indirectCount = await this.getIndirectReferrals(userId, 10);
+      const totalTeamSize = directCount + indirectCount;
+      
+      // Update user with calculated stats
+      await User.findByIdAndUpdate(userId, {
+        directReferrals: directCount,
+        teamSize: totalTeamSize
+      });
+      
+      return { directReferrals: directCount, teamSize: totalTeamSize };
+    } catch (error) {
       throw error;
     }
   },

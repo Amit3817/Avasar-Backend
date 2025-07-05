@@ -11,7 +11,6 @@ import {
   MONTHLY_ROI_PERCENT,
   INVESTMENT_BONUS_MONTHS
 } from '../config/constants.js';
-import logger from '../config/logger.js';
 import mongoose from 'mongoose';
 
 const REFERRAL_CODE_LENGTH = 8;
@@ -46,11 +45,11 @@ export async function addReferralIncome(newUserId) {
     const regAmount = Number(regSlip.amount);
     let currentUser = await User.findById(newUserId).session(session);
     for (let level = 1; level <= 10; level++) {
-      if (!currentUser || !currentUser.referredBy) break;
-      const parent = await User.findById(currentUser.referredBy).session(session);
+      if (!currentUser || !currentUser.referral?.referredBy) break;
+      const parent = await User.findById(currentUser.referral?.referredBy).session(session);
       if (!parent) break;
       let requiredDirects = DIRECT_REQS[level] || 0;
-      const directCount = await User.countDocuments({ referredBy: parent._id }).session(session);
+      const directCount = await User.countDocuments({ 'referral.referredBy': parent._id }).session(session);
       if (directCount < requiredDirects) {
         currentUser = parent;
         continue;
@@ -59,9 +58,9 @@ export async function addReferralIncome(newUserId) {
       const income = Math.floor(regAmount * percent);
       await User.findByIdAndUpdate(parent._id, {
         $inc: {
-          referralIncome: income,
-          walletBalance: income,
-          directReferralCount: level === 1 ? 1 : 0
+          'income.referralIncome': income,
+          'income.walletBalance': income,
+          'referral.directReferralCount': level === 1 ? 1 : 0
         }
       }, { session });
       currentUser = parent;
@@ -69,7 +68,6 @@ export async function addReferralIncome(newUserId) {
     await session.commitTransaction();
   } catch (err) {
     await session.abortTransaction();
-    logger.error('addReferralIncome transaction error:', err);
     throw err;
   } finally {
     session.endSession();
@@ -78,13 +76,14 @@ export async function addReferralIncome(newUserId) {
 
 async function checkAndAwardRewards(user) {
   for (const milestone of REWARD_MILESTONES) {
-    if (user.totalPairs >= milestone.pairs && !(user.awardedRewards || []).includes(milestone.name)) {
-      // Award reward (add to awardedRewards, increment rewardIncome if cash)
-      user.awardedRewards = user.awardedRewards || [];
-      user.awardedRewards.push(milestone.name);
+    if (user.system?.totalPairs >= milestone.pairs && !(user.system?.awardedRewards || []).includes(milestone.name)) {
+      // Award the milestone
+      user.system.awardedRewards = user.system?.awardedRewards || [];
+      user.system.awardedRewards.push(milestone.name);
       if (typeof milestone.reward === 'number') {
-        user.rewardIncome = (user.rewardIncome || 0) + milestone.reward;
-        user.walletBalance = (user.walletBalance || 0) + milestone.reward;
+        user.income = user.income || {};
+        user.income.rewardIncome = (user.income.rewardIncome || 0) + milestone.reward;
+        user.income.walletBalance = (user.income.walletBalance || 0) + milestone.reward;
       }
       await user.save();
     }
@@ -103,32 +102,32 @@ export async function addMatchingIncome(newUserId) {
     const maxPairsPerDay = MAX_PAIRS_PER_DAY;
     let currentUser = await User.findById(newUserId).session(session);
     for (let level = 1; level <= 10; level++) {
-      if (!currentUser || !currentUser.referredBy) break;
-      const parent = await User.findById(currentUser.referredBy).session(session);
+      if (!currentUser || !currentUser.referral?.referredBy) break;
+      const parent = await User.findById(currentUser.referral?.referredBy).session(session);
       if (!parent) break;
       let requiredDirects = DIRECT_REQS[level] || 0;
-      const directCount = await User.countDocuments({ referredBy: parent._id }).session(session);
+      const directCount = await User.countDocuments({ 'referral.referredBy': parent._id }).session(session);
       if (directCount < requiredDirects) {
         currentUser = parent;
         continue;
       }
       const today = new Date().toISOString().slice(0, 10);
-      parent.matchingPairsToday = parent.matchingPairsToday || {};
-      parent.matchingPairsToday[today] = parent.matchingPairsToday[today] || 0;
-      if (parent.matchingPairsToday[today] >= maxPairsPerDay) {
+      parent.system = parent.system || {};
+      parent.system.matchingPairsToday = parent.system.matchingPairsToday || {};
+      parent.system.matchingPairsToday[today] = parent.system.matchingPairsToday[today] || 0;
+      if (parent.system.matchingPairsToday[today] >= maxPairsPerDay) {
         currentUser = parent;
         continue;
       }
       const result = await User.findByIdAndUpdate(parent._id, {
         $inc: {
-          matchingIncome: pairBonus,
-          totalPairs: 1,
-          walletBalance: pairBonus,
-          [`matchingPairsToday.${today}`]: 1
+          'income.matchingIncome': pairBonus,
+          'system.totalPairs': 1,
+          'income.walletBalance': pairBonus,
+          [`system.matchingPairsToday.${today}`]: 1
         }
       }, { new: true, session });
       if (!result) {
-        logger.error(`Failed to update matching income for user ${parent._id}`);
         continue;
       }
       const updatedParent = await User.findById(parent._id).session(session);
@@ -138,7 +137,6 @@ export async function addMatchingIncome(newUserId) {
     await session.commitTransaction();
   } catch (err) {
     await session.abortTransaction();
-    logger.error('addMatchingIncome transaction error:', err);
     throw err;
   } finally {
     session.endSession();
@@ -151,8 +149,8 @@ export async function addRewardIncome(userId) {
   const rewardAmount = 200; // This should come from business logic
   await User.findByIdAndUpdate(userId, { 
     $inc: { 
-      rewardIncome: rewardAmount,
-      walletBalance: rewardAmount 
+      'income.rewardIncome': rewardAmount,
+      'income.walletBalance': rewardAmount 
     } 
   });
 }
@@ -168,16 +166,15 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
     const monthlyReturn = investmentAmount * MONTHLY_ROI_PERCENT;
     let currentUser = await User.findById(investorId).session(session);
     if (!currentUser) {
-      logger.error(`Investor not found: ${investorId}`);
       await session.abortTransaction();
       session.endSession();
       return;
     }
     for (let level = 1; level <= 10; level++) {
-      if (!currentUser || !currentUser.referredBy) break;
-      const parent = await User.findById(currentUser.referredBy).session(session);
+      if (!currentUser || !currentUser.referral?.referredBy) break;
+      const parent = await User.findById(currentUser.referral?.referredBy).session(session);
       if (!parent) break;
-      const directCount = await User.countDocuments({ referredBy: parent._id }).session(session);
+      const directCount = await User.countDocuments({ 'referral.referredBy': parent._id }).session(session);
       if (directCount < directReqs[level]) {
         currentUser = parent;
         continue;
@@ -189,14 +186,13 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
         try {
           await User.findByIdAndUpdate(parent._id, {
             $inc: {
-              investmentReferralIncome: oneTimeBonus,
-              investmentReferralPrincipalIncome: oneTimeBonus,
-              referralInvestmentPrincipal: investmentAmount,
-              walletBalance: oneTimeBonus
+              'income.investmentReferralIncome': oneTimeBonus,
+              'income.investmentReferralPrincipalIncome': oneTimeBonus,
+              'referral.referralInvestmentPrincipal': investmentAmount,
+              'income.walletBalance': oneTimeBonus
             }
           }, { session });
         } catch (error) {
-          logger.error(`Failed to update one-time bonus for user ${parent._id}:`, error);
         }
       }
       
@@ -219,7 +215,6 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
             $set: { pendingInvestmentBonuses: pending }
           }, { session });
         } catch (error) {
-          logger.error(`Failed to update monthly bonuses for user ${parent._id}:`, error);
         }
       }
       currentUser = parent;
@@ -227,7 +222,6 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
     await session.commitTransaction();
   } catch (error) {
     await session.abortTransaction();
-    logger.error(`Error in addInvestmentBonuses for investor ${investorId}:`, error);
     throw error;
   } finally {
     session.endSession();
@@ -257,8 +251,9 @@ export async function processInvestmentReturnPayouts() {
           
           if (bonusMonth === currentMonth && bonusYear === currentYear) {
             // Award the monthly investment return bonus
-            user.investmentReferralReturnIncome = (user.investmentReferralReturnIncome || 0) + bonus.amount;
-            user.walletBalance = (user.walletBalance || 0) + bonus.amount;
+            user.income = user.income || {};
+            user.income.investmentReferralReturnIncome = (user.income.investmentReferralReturnIncome || 0) + bonus.amount;
+            user.income.walletBalance = (user.income.walletBalance || 0) + bonus.amount;
             bonus.awarded = true;
             updated = true;
             processedCount++;
@@ -272,11 +267,9 @@ export async function processInvestmentReturnPayouts() {
     }
     
     await session.commitTransaction();
-    logger.info(`Processed ${processedCount} investment return payouts`);
     return processedCount;
   } catch (error) {
     await session.abortTransaction();
-    logger.error('Error processing investment return payouts:', error);
     throw error;
   } finally {
     session.endSession();

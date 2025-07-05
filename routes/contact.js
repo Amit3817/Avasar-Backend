@@ -1,6 +1,5 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import logger from '../config/logger.js';
 
 const router = express.Router();
 
@@ -87,9 +86,6 @@ router.post('/', contactValidator, handleValidation, async (req, res) => {
   try {
     const { name, email, message } = req.body;
     
-    // Log the contact form submission
-    logger.info(`Contact form submitted by ${name} (${email})`);
-    
     // Here you would typically:
     // 1. Save to database
     // 2. Send email notification
@@ -105,7 +101,6 @@ router.post('/', contactValidator, handleValidation, async (req, res) => {
     });
     
   } catch (error) {
-    logger.error('Contact form submission error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to send message. Please try again later.'

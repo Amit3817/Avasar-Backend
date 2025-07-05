@@ -66,11 +66,11 @@ router.get('/user/:id/indirect-referrals', requireAuth, requireAdmin, validateUs
 router.get('/user/:id/direct-referrals', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('leftChildren rightChildren');
+    const user = await User.findById(id).select('referral');
     if (!user) return res.status(404).json({ error: 'User not found' });
     const allIds = [
-      ...(user.leftChildren || []),
-      ...(user.rightChildren || [])
+      ...(user.referral?.leftChildren || []),
+      ...(user.referral?.rightChildren || [])
     ];
     const users = await User.find({ _id: { $in: allIds } });
     res.json(users);
@@ -83,9 +83,9 @@ router.get('/user/:id/direct-referrals', requireAuth, requireAdmin, validateUser
 router.get('/user/:id/direct-left', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('leftChildren');
+    const user = await User.findById(id).select('referral');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const users = await User.find({ _id: { $in: user.leftChildren || [] } });
+    const users = await User.find({ _id: { $in: user.referral?.leftChildren || [] } });
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -96,9 +96,9 @@ router.get('/user/:id/direct-left', requireAuth, requireAdmin, validateUserExist
 router.get('/user/:id/direct-right', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('rightChildren');
+    const user = await User.findById(id).select('referral');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const users = await User.find({ _id: { $in: user.rightChildren || [] } });
+    const users = await User.find({ _id: { $in: user.referral?.rightChildren || [] } });
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });

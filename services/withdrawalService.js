@@ -60,7 +60,8 @@ const withdrawalService = {
     // Subtract amount from user's walletBalance
     const user = await User.findById(withdrawal.user);
     if (user) {
-      user.walletBalance = Math.max(0, (user.walletBalance || 0) - (withdrawal.amount || 0));
+      user.income = user.income || {};
+      user.income.walletBalance = Math.max(0, (user.income.walletBalance || 0) - (withdrawal.amount || 0));
       await user.save();
     }
 

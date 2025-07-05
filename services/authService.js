@@ -23,7 +23,7 @@ const authService = {
     if (password.length < 6) throw new Error('Password must be at least 6 characters long.');
     let refUser = null;
     if (referralCode) {
-      refUser = await User.findOne({ referralCode });
+      refUser = await User.findOne({ 'referral.referralCode': referralCode });
       if (!refUser) throw new Error('Referral code not found. Please check and try again.');
       if (!position || !['left', 'right'].includes(position)) {
         throw new Error('Please select a position (left or right) when using a referral code.');
@@ -39,7 +39,9 @@ const authService = {
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
     const newReferralCode = await generateUniqueReferralCode();
     const user = await User.create({
-      fullName, email, phone,
+      profile: { fullName },
+      auth: { email },
+      phone,
       password: hashedPassword, otp, otpExpires,
       referredBy: refUser ? refUser._id : null, isAdmin: !!isAdmin, referralCode: newReferralCode,
       position: refUser ? position : null
@@ -47,11 +49,11 @@ const authService = {
     // Update referrer's leftChildren/rightChildren array
     if (refUser) {
       if (position === 'left') {
-        refUser.leftChildren = refUser.leftChildren || [];
-        refUser.leftChildren.push(user._id);
+        refUser.referral.leftChildren = refUser.referral?.leftChildren || [];
+        refUser.referral.leftChildren.push(user._id);
       } else if (position === 'right') {
-        refUser.rightChildren = refUser.rightChildren || [];
-        refUser.rightChildren.push(user._id);
+        refUser.referral.rightChildren = refUser.referral?.rightChildren || [];
+        refUser.referral.rightChildren.push(user._id);
       }
       await refUser.save();
     }
@@ -64,7 +66,7 @@ const authService = {
   },
 
   async verifyOtp({ email, otp }) {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ auth: { email } });
     if (!user) throw new Error('No account found with this email.');
     const MAX_OTP_ATTEMPTS = 5;
     const OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
@@ -79,7 +81,7 @@ const authService = {
       await user.save();
       throw new Error('Invalid or expired OTP. Please check your email and try again.');
     }
-    user.isVerified = true;
+    user.auth.isVerified = true;
     user.otp = null;
     user.otpExpires = null;
     user.otpAttempts = 0;
@@ -88,7 +90,7 @@ const authService = {
     
     // Enhanced JWT with issuer and audience
     const token = jwt.sign(
-      { id: user._id, isAdmin: user.isAdmin }, 
+      { id: user._id, isAdmin: user.auth?.isAdmin }, 
       process.env.JWT_SECRET, 
       { 
         expiresIn: '7d',
@@ -102,36 +104,36 @@ const authService = {
       token,
       user: {
         _id: user._id,
-        email: user.email,
-        phone: user.phone,
-        fullName: user.fullName,
-        referralCode: user.referralCode,
-        isAdmin: user.isAdmin,
-        walletBalance: user.walletBalance,
+        email: user.auth?.email,
+        phone: user.profile?.phone,
+        fullName: user.profile?.fullName,
+        referralCode: user.referral?.referralCode,
+        isAdmin: user.auth?.isAdmin,
+        walletBalance: user.income?.walletBalance,
         totalEarnings: user.totalEarnings,
-        directReferrals: user.directReferrals,
-        rank: user.rank,
-        referralIncome: user.referralIncome,
-        matchingIncome: user.matchingIncome,
-        rewardIncome: user.rewardIncome,
-        investmentIncome: user.investmentIncome,
-        totalInvestment: user.totalInvestment,
-        teamSize: user.teamSize,
-        position: user.position
+        directReferrals: user.referral?.directReferrals,
+        rank: user.profile?.rank,
+        referralIncome: user.income?.referralIncome,
+        matchingIncome: user.income?.matchingIncome,
+        rewardIncome: user.income?.rewardIncome,
+        investmentIncome: user.income?.investmentIncome,
+        totalInvestment: user.investment?.totalInvestment,
+        teamSize: user.referral?.teamSize,
+        position: user.profile?.position
       }
     };
   },
 
   async login({ email, password }) {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ auth: { email } });
     if (!user) throw new Error('No account found with this email address.');
-    if (!user.isVerified) throw new Error('Your email is not verified. Please verify your email with the OTP sent during registration.');
+    if (!user.auth.isVerified) throw new Error('Your email is not verified. Please verify your email with the OTP sent during registration.');
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new Error('Incorrect password. Please try again.');
     
     // Enhanced JWT with issuer and audience
     const token = jwt.sign(
-      { id: user._id, isAdmin: user.isAdmin }, 
+      { id: user._id, isAdmin: user.auth?.isAdmin }, 
       process.env.JWT_SECRET, 
       { 
         expiresIn: '7d',
@@ -145,30 +147,30 @@ const authService = {
       token,
       user: {
         _id: user._id,
-        email: user.email,
-        phone: user.phone,
-        fullName: user.fullName,
-        referralCode: user.referralCode,
-        isAdmin: user.isAdmin,
-        walletBalance: user.walletBalance,
+        email: user.auth?.email,
+        phone: user.profile?.phone,
+        fullName: user.profile?.fullName,
+        referralCode: user.referral?.referralCode,
+        isAdmin: user.auth?.isAdmin,
+        walletBalance: user.income?.walletBalance,
         totalEarnings: user.totalEarnings,
-        directReferrals: user.directReferrals,
-        rank: user.rank,
-        referralIncome: user.referralIncome,
-        matchingIncome: user.matchingIncome,
-        rewardIncome: user.rewardIncome,
-        investmentIncome: user.investmentIncome,
-        totalInvestment: user.totalInvestment,
-        teamSize: user.teamSize,
-        position: user.position
+        directReferrals: user.referral?.directReferrals,
+        rank: user.profile?.rank,
+        referralIncome: user.income?.referralIncome,
+        matchingIncome: user.income?.matchingIncome,
+        rewardIncome: user.income?.rewardIncome,
+        investmentIncome: user.income?.investmentIncome,
+        totalInvestment: user.investment?.totalInvestment,
+        teamSize: user.referral?.teamSize,
+        position: user.profile?.position
       }
     };
   },
 
   async resendOtp({ email }) {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ auth: { email } });
     if (!user) throw new Error('No account found with this email.');
-    const otpKey = `${user.phone || ''}|${user.email || ''}`;
+    const otpKey = `${user.profile?.phone || ''}|${user.auth?.email || ''}`;
     if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
       throw new Error('OTP was recently sent. Please wait before requesting again.');
     otpRateLimit[otpKey] = Date.now();
@@ -176,7 +178,7 @@ const authService = {
     user.otp = otp;
     user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
-    await sendOtp(user.email, otp);
+    await sendOtp(user.auth?.email, otp);
     return true;
   },
 };

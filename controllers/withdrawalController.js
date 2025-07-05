@@ -23,7 +23,7 @@ export const requestWithdrawal = async (req, res) => {
       return res.status(400).json({ success: false, message: withdrawalCheck.reason });
     }
     
-    user.walletBalance -= amount;
+    user.income.walletBalance -= amount;
     await user.save();
     
     const withdrawal = await Withdrawal.create({ 

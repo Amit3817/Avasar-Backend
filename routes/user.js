@@ -7,8 +7,8 @@ import { uploadProfilePicture } from '../services/cloudinaryService.js';
 import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus } from '../controllers/adminController.js';
 import { requestWithdrawal, withdrawValidators, getDirectReferrals, getIndirectReferrals, getDirectLeft, getDirectRight } from '../controllers/userController.js';
 import investmentService from '../services/investmentService.js';
+import referralService from '../services/referralService.js';
 import upload from '../middleware/upload.js';
-import logger from '../config/logger.js';
 
 const router = express.Router();
 
@@ -17,12 +17,23 @@ const router = express.Router();
 router.get('/profile', requireAuth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
-      .populate('referredBy', 'fullName email')
+      .populate('referral.referredBy', 'profile.fullName auth.email')
       .lean();
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    
+    // Calculate and update team stats
+    const teamStats = await referralService.updateUserTeamStats(req.user._id);
+    
+    // Merge team stats with user data
+    const userWithStats = {
+      ...user,
+      directReferrals: teamStats.directReferrals,
+      teamSize: teamStats.teamSize
+    };
+    
+    res.json({ success: true, user: userWithStats, message: 'Profile fetched successfully.', error: null });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch profile' });
+    res.status(500).json({ success: false, user: null, message: 'Failed to fetch profile.', error: err.message });
   }
 });
 
@@ -36,15 +47,14 @@ router.post('/profile-picture', requireAuth, upload.single('profilePicture'), as
     const result = await uploadProfilePicture(file.buffer, file.originalname);
     
     // Update user's profile picture
-    req.user.profilePicture = result.secure_url;
+    req.user.profile.profilePicture = result.secure_url;
     await req.user.save();
     
     res.json({ 
       message: 'Profile picture uploaded successfully', 
-      url: req.user.profilePicture 
+      url: req.user.profile?.profilePicture 
     });
   } catch (err) {
-    logger.error('Profile picture upload error:', err);
     res.status(500).json({ error: 'Profile picture upload failed' });
   }
 });

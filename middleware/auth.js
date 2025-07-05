@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import logger from '../config/logger.js';
 
 // Token blacklist (in production, use Redis or database)
 const tokenBlacklist = new Set();
@@ -21,7 +20,6 @@ export const verifyToken = (token) => {
 
     return decoded;
   } catch (error) {
-    logger.warn(`JWT verification failed: ${error.message}`);
     throw error;
   }
 };
@@ -59,7 +57,7 @@ export const requireAuth = async (req, res, next) => {
       });
     }
 
-    if (!user.isVerified) {
+    if (!user.auth?.isVerified) {
       return res.status(401).json({ 
         error: 'Account not verified',
         message: 'Please verify your email address before accessing this resource'
@@ -70,13 +68,8 @@ export const requireAuth = async (req, res, next) => {
     req.user = user;
     req.token = token;
     
-    // Log successful authentication
-    logger.info(`User authenticated: ${user.email} (${user._id})`);
-    
     next();
   } catch (error) {
-    logger.warn(`Authentication failed: ${error.message}`);
-    
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ 
         error: 'Token expired',
@@ -100,8 +93,7 @@ export const requireAuth = async (req, res, next) => {
 
 // Admin authorization middleware
 export const requireAdmin = (req, res, next) => {
-  if (!req.user.isAdmin) {
-    logger.warn(`Unauthorized admin access attempt by user: ${req.user.email}`);
+  if (!req.user.auth?.isAdmin) {
     return res.status(403).json({ 
       error: 'Admin access required',
       message: 'You do not have permission to access this resource'
@@ -113,7 +105,6 @@ export const requireAdmin = (req, res, next) => {
 // Token revocation (logout)
 export const revokeToken = (token) => {
   tokenBlacklist.add(token);
-  logger.info('Token revoked successfully');
 };
 
 // Clean up expired tokens from blacklist (run periodically)
@@ -122,7 +113,6 @@ export const cleanupBlacklist = () => {
   // For now, we'll keep it simple
   const initialSize = tokenBlacklist.size;
   // You could implement cleanup logic here
-  logger.info(`Token blacklist cleanup: ${initialSize} tokens`);
 };
 
 export default {

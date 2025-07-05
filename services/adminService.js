@@ -3,7 +3,6 @@ import PaymentSlip from '../models/PaymentSlip.js';
 import Withdrawal from '../models/Withdrawal.js';
 import referralService from './referralService.js';
 import investmentService from './investmentService.js';
-import logger from '../config/logger.js';
 
 const adminService = {
   async getAllUsers(pagination = {}) {
@@ -122,23 +121,17 @@ const adminService = {
       try {
         // If this is a registration payment (₹3600), trigger referral logic
         if (Number(slip.amount) === 3600) {
-          logger.info(`Processing registration payment for user ${slip.user} with amount ₹${slip.amount}`);
           const result = await referralService.processRegistrationReferralIncome(slip.user, slip._id);
           if (result.success) {
-            logger.info(`Registration referral income processed successfully for user ${slip.user}`);
           } else {
-            logger.info(`Registration already processed for user ${slip.user}`);
           }
         }
         
         // If this is an investment payment (₹10,000 or more), trigger investment logic
         if (Number(slip.amount) >= 10000) {
-          logger.info(`Processing investment payment for user ${slip.user} with amount ₹${slip.amount}`);
           await investmentService.approveInvestment(slip._id);
-          logger.info(`Investment processed successfully for user ${slip.user}`);
         }
       } catch (error) {
-        logger.error('Error triggering income updates after payment slip approval:', error.message);
         // Don't throw error to avoid failing the approval
       }
     }
@@ -150,9 +143,9 @@ const adminService = {
     const user = await User.findById(userId).lean();
     if (!user) throw new Error('User not found');
     return {
-      totalPairs: user.totalPairs || 0,
-      awardedRewards: user.awardedRewards || [],
-      rewardIncome: user.rewardIncome || 0
+      totalPairs: user.system?.totalPairs || 0,
+      awardedRewards: user.system?.awardedRewards || [],
+      rewardIncome: user.income?.rewardIncome || 0
     };
   },
 

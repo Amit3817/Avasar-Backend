@@ -232,7 +232,7 @@ router.post('/check-verification', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
     
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ 'auth.email': email });
     if (!user) {
       return res.json({ 
         exists: false, 
@@ -243,8 +243,8 @@ router.post('/check-verification', async (req, res) => {
     
     return res.json({ 
       exists: true, 
-      isVerified: user.isVerified, 
-      message: user.isVerified ? 'Email is verified' : 'Email is not verified'
+      isVerified: user.auth?.isVerified, 
+      message: user.auth?.isVerified ? 'Email is verified' : 'Email is not verified'
     });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });

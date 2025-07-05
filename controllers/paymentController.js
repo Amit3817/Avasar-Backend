@@ -13,7 +13,7 @@ dotenv.config();
 
 export const uploadSlip = async (req, res) => {
   let userId = req.user._id;
-  if (req.body.userId && req.user.isAdmin) {
+  if (req.body.userId && req.user.auth?.isAdmin) {
     userId = req.body.userId;
   }
   if (!req.file) return sendError(res, 'No file uploaded', 400);
@@ -24,11 +24,10 @@ export const uploadSlip = async (req, res) => {
       amount: req.body.amount,
       method: req.body.method,
       transactionId: req.body.transactionId,
-      isAdmin: req.user.isAdmin || false,
+      isAdmin: req.user.auth?.isAdmin || false,
     });
     sendSuccess(res, { slip }, 'Payment slip uploaded successfully. Awaiting admin approval.');
   } catch (err) {
-    logger.error('UploadSlip error:', err);
     sendError(res, err.message || 'Payment slip upload failed', 400);
   }
 };
@@ -38,7 +37,7 @@ export const getSlip = async (req, res) => {
     const slips = await paymentService.getSlip(req.user._id);
     sendSuccess(res, { slips }, 'Payment slips fetched successfully.');
   } catch (err) {
-    sendNotFound(res, err.message);
+    sendError(res, err.message || 'Failed to fetch payment slips', 500);
   }
 };
 
@@ -97,7 +96,7 @@ export const getAllWithdrawals = async (req, res) => {
 };
 
 export const adminUploadSlip = async (req, res) => {
-  if (!req.user.isAdmin) return sendForbidden(res, 'Admin access required.');
+  if (!req.user.auth?.isAdmin) return sendForbidden(res, 'Admin access required.');
   const userId = req.body.userId;
   if (!userId) return sendError(res, 'userId is required.', 400);
   if (!req.file) return sendError(res, 'No file uploaded', 400);
@@ -112,7 +111,6 @@ export const adminUploadSlip = async (req, res) => {
     });
     sendSuccess(res, { slip }, 'Payment slip uploaded and approved by admin.');
   } catch (err) {
-    logger.error('AdminUploadSlip error:', err);
     sendError(res, err.message || 'Payment slip upload failed', 400);
   }
 }; 
