@@ -33,6 +33,9 @@ try {
 
 const app = express();
 
+// Trust proxy for rate limiting behind cloud providers (Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
 // CORS configuration - Always use production mode
 const isProduction = true;
 const allowedOrigins = productionConfig.cors.allowedOrigins;
