@@ -5,7 +5,7 @@ import PaymentSlip from '../models/PaymentSlip.js';
 import Withdrawal from '../models/Withdrawal.js';
 import { uploadProfilePicture } from '../services/cloudinaryService.js';
 import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus } from '../controllers/adminController.js';
-import { requestWithdrawal, withdrawValidators } from '../controllers/userController.js';
+import { requestWithdrawal, withdrawValidators, getDirectReferrals, getIndirectReferrals, getDirectLeft, getDirectRight } from '../controllers/userController.js';
 import investmentService from '../services/investmentService.js';
 import upload from '../middleware/upload.js';
 import logger from '../config/logger.js';
@@ -96,6 +96,9 @@ router.get('/investment-summary', requireAuth, async (req, res) => {
   }
 });
 
-
+router.get('/direct-referrals', requireAuth, getDirectReferrals);
+router.get('/indirect-referrals', requireAuth, getIndirectReferrals);
+router.get('/direct-left', requireAuth, getDirectLeft);
+router.get('/direct-right', requireAuth, getDirectRight);
 
 export default router; 

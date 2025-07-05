@@ -3,6 +3,7 @@ import userService from '../services/userService.js';
 import User from '../models/User.js';
 import Withdrawal from '../models/Withdrawal.js';
 import withdrawalService from '../services/withdrawalService.js';
+import referralService from '../services/referralService.js';
 
 export const getProfile = async (req, res) => {
   try {
@@ -76,5 +77,41 @@ export const getUserProfile = async (req, res) => {
     res.json({ success: true, data: { user }, message: 'Profile fetched successfully.', error: null });
   } catch (err) {
     res.status(500).json({ success: false, data: null, message: 'Failed to fetch profile.', error: err.message });
+  }
+};
+
+export const getDirectReferrals = async (req, res) => {
+  try {
+    const directReferrals = await referralService.getDirectReferrals(req.user._id);
+    res.json(directReferrals);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getIndirectReferrals = async (req, res) => {
+  try {
+    const indirectReferrals = await referralService.getIndirectReferrals(req.user._id);
+    res.json(indirectReferrals);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getDirectLeft = async (req, res) => {
+  try {
+    const users = await referralService.getDirectLeft(req.user._id);
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getDirectRight = async (req, res) => {
+  try {
+    const users = await referralService.getDirectRight(req.user._id);
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 }; 
