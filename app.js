@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import morgan from 'morgan';
 import cron from 'node-cron';
-import rateLimit from 'express-rate-limit';
+// import rateLimit from 'express-rate-limit';
 import User from './models/User.js';
 import mongoSanitize from 'express-mongo-sanitize';
 import swaggerUi from 'swagger-ui-express';
@@ -58,9 +58,9 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Origin', 'Accept']
 }));
-// Rate limiting - Always enabled in production mode
-const limiter = rateLimit(productionConfig.rateLimit);
-app.use('/api/', limiter);
+// Rate limiting disabled to prevent timeout issues
+// const limiter = rateLimit(productionConfig.rateLimit);
+// app.use('/api/', limiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

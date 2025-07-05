@@ -1,64 +1,89 @@
-import rateLimit from 'express-rate-limit';
-
-// Store for tracking OTP attempts per email
+// Basic OTP Rate Limiter - Simple in-memory implementation
 const otpAttempts = new Map();
+const resendAttempts = new Map();
 
-// Clean up old attempts every 15 minutes
+// Clean up old entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [email, data] of otpAttempts.entries()) {
-    if (now - data.lastAttempt > 15 * 60 * 1000) { // 15 minutes
-      otpAttempts.delete(email);
+  for (const [key, data] of otpAttempts.entries()) {
+    if (now - data.lastAttempt > 5 * 60 * 1000) { // 5 minutes
+      otpAttempts.delete(key);
     }
   }
-}, 15 * 60 * 1000); // Clean up every 15 minutes
-
-// OTP verification limiter - 5 attempts per 15 minutes
-export const otpVerificationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window
-  message: {
-    success: false,
-    message: 'Too many OTP verification attempts. Please try again in 15 minutes.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Use email as key for OTP attempts
-    return req.body?.email || req.ip;
+  for (const [key, data] of resendAttempts.entries()) {
+    if (now - data.lastAttempt > 5 * 60 * 1000) { // 5 minutes
+      resendAttempts.delete(key);
+    }
   }
-});
+}, 5 * 60 * 1000);
 
-// OTP resend limiter - 3 resends per 15 minutes
-export const otpResendLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 3, // 3 resends per window
-  message: {
-    success: false,
-    message: 'Too many OTP resend attempts. Please try again in 15 minutes.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Use email as key for OTP resends
-    return req.body?.email || req.ip;
-  }
-});
-
-// Function to track failed OTP attempts
-export const trackOtpAttempt = (email) => {
+// Basic OTP verification rate limiter
+export const otpVerificationLimiter = (req, res, next) => {
+  const email = req.body.email;
   const now = Date.now();
-  const attempts = otpAttempts.get(email) || { count: 0, lastAttempt: now };
+  const key = `verify_${email}`;
+  
+  const attempts = otpAttempts.get(key) || { count: 0, lastAttempt: 0 };
+  
+  // Reset if more than 5 minutes have passed
+  if (now - attempts.lastAttempt > 5 * 60 * 1000) {
+    attempts.count = 0;
+  }
+  
+  // Allow max 5 attempts per 5 minutes
+  if (attempts.count >= 5) {
+    return res.status(429).json({
+      error: 'Too many OTP verification attempts. Please try again in 5 minutes.',
+      remainingTime: Math.ceil((attempts.lastAttempt + 5 * 60 * 1000 - now) / 1000)
+    });
+  }
   
   attempts.count++;
   attempts.lastAttempt = now;
+  otpAttempts.set(key, attempts);
   
-  otpAttempts.set(email, attempts);
-  
-  return attempts.count;
+  next();
 };
 
-// Function to reset OTP attempts for successful verification
+// Basic OTP resend rate limiter
+export const otpResendLimiter = (req, res, next) => {
+  const email = req.body.email;
+  const now = Date.now();
+  const key = `resend_${email}`;
+  
+  const attempts = resendAttempts.get(key) || { count: 0, lastAttempt: 0 };
+  
+  // Reset if more than 5 minutes have passed
+  if (now - attempts.lastAttempt > 5 * 60 * 1000) {
+    attempts.count = 0;
+  }
+  
+  // Allow max 3 resend attempts per 5 minutes
+  if (attempts.count >= 3) {
+    return res.status(429).json({
+      error: 'Too many OTP resend attempts. Please try again in 5 minutes.',
+      remainingTime: Math.ceil((attempts.lastAttempt + 5 * 60 * 1000 - now) / 1000)
+    });
+  }
+  
+  attempts.count++;
+  attempts.lastAttempt = now;
+  resendAttempts.set(key, attempts);
+  
+  next();
+};
+
+// Track OTP attempt (for compatibility)
+export const trackOtpAttempt = (email) => {
+  const key = `verify_${email}`;
+  const attempts = otpAttempts.get(key) || { count: 0, lastAttempt: 0 };
+  attempts.count++;
+  attempts.lastAttempt = Date.now();
+  otpAttempts.set(key, attempts);
+};
+
+// Reset OTP attempts (for compatibility)
 export const resetOtpAttempts = (email) => {
-  otpAttempts.delete(email);
+  const key = `verify_${email}`;
+  otpAttempts.delete(key);
 }; 
