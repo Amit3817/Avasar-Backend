@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
+import logger from '../config/logger.js';
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ export const uploadToCloudinary = async (fileBuffer, folder, publicId = null, re
       uploadOptions,
       (error, result) => {
         if (error) {
-          console.error('Cloudinary upload error:', error);
+          logger.error('Cloudinary upload error:', error);
           return reject(new Error('Failed to upload file to Cloudinary'));
         }
         resolve(result);
@@ -77,7 +78,7 @@ export const deleteFromCloudinary = async (publicId, resourceType = 'auto') => {
     const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
     return result;
   } catch (error) {
-    console.error('Cloudinary deletion error:', error);
+    logger.error('Cloudinary deletion error:', error);
     throw new Error('Failed to delete file from Cloudinary');
   }
 };

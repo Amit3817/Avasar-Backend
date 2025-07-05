@@ -8,6 +8,7 @@ import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipSta
 import { requestWithdrawal, withdrawValidators } from '../controllers/userController.js';
 import investmentService from '../services/investmentService.js';
 import upload from '../middleware/upload.js';
+import logger from '../config/logger.js';
 
 const router = express.Router();
 
@@ -43,7 +44,7 @@ router.post('/profile-picture', requireAuth, upload.single('profilePicture'), as
       url: req.user.profilePicture 
     });
   } catch (err) {
-    console.error('Profile picture upload error:', err);
+    logger.error('Profile picture upload error:', err);
     res.status(500).json({ error: 'Profile picture upload failed' });
   }
 });

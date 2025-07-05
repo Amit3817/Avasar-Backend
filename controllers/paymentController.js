@@ -8,6 +8,7 @@ import logger from '../config/logger.js';
 import paymentService from '../services/paymentService.js';
 import withdrawalService from '../services/withdrawalService.js';
 import { createPaginationResponse } from '../middleware/pagination.js';
+import { sendSuccess, sendError, sendNotFound } from '../utils/responseHelpers.js';
 dotenv.config();
 
 export const uploadSlip = async (req, res) => {
@@ -15,7 +16,7 @@ export const uploadSlip = async (req, res) => {
   if (req.body.userId && req.user.isAdmin) {
     userId = req.body.userId;
   }
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file) return sendError(res, 'No file uploaded', 400);
   try {
     const slip = await paymentService.uploadSlip({
       userId,
@@ -25,19 +26,19 @@ export const uploadSlip = async (req, res) => {
       transactionId: req.body.transactionId,
       isAdmin: req.user.isAdmin || false,
     });
-    res.json({ message: 'Payment slip uploaded successfully. Awaiting admin approval.', slip });
+    sendSuccess(res, { slip }, 'Payment slip uploaded successfully. Awaiting admin approval.');
   } catch (err) {
     logger.error('UploadSlip error:', err);
-    res.status(400).json({ error: err.message || 'Payment slip upload failed' });
+    sendError(res, err.message || 'Payment slip upload failed', 400);
   }
 };
 
 export const getSlip = async (req, res) => {
   try {
     const slips = await paymentService.getSlip(req.user._id);
-    res.json({ message: 'Payment slips fetched successfully.', slips });
+    sendSuccess(res, { slips }, 'Payment slips fetched successfully.');
   } catch (err) {
-    res.status(404).json({ error: err.message });
+    sendNotFound(res, err.message);
   }
 };
 
@@ -96,10 +97,10 @@ export const getAllWithdrawals = async (req, res) => {
 };
 
 export const adminUploadSlip = async (req, res) => {
-  if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required.' });
+  if (!req.user.isAdmin) return sendForbidden(res, 'Admin access required.');
   const userId = req.body.userId;
-  if (!userId) return res.status(400).json({ error: 'userId is required.' });
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!userId) return sendError(res, 'userId is required.', 400);
+  if (!req.file) return sendError(res, 'No file uploaded', 400);
   try {
     const slip = await paymentService.adminUploadSlip({
       userId,
@@ -109,9 +110,9 @@ export const adminUploadSlip = async (req, res) => {
       transactionId: req.body.transactionId,
       adminId: req.user._id,
     });
-    res.json({ message: 'Payment slip uploaded and approved by admin.', slip });
+    sendSuccess(res, { slip }, 'Payment slip uploaded and approved by admin.');
   } catch (err) {
     logger.error('AdminUploadSlip error:', err);
-    res.status(400).json({ error: err.message || 'Payment slip upload failed' });
+    sendError(res, err.message || 'Payment slip upload failed', 400);
   }
 }; 

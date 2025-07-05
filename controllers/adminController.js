@@ -1,17 +1,14 @@
 import adminService from '../services/adminService.js';
 import { createPaginationResponse } from '../middleware/pagination.js';
+import { sendSuccess, sendError } from '../utils/responseHelpers.js';
 
 export async function getAllUsers(req, res) {
   try {
     const { users, total, page, limit } = await adminService.getAllUsers(req.pagination);
     const response = createPaginationResponse(users, total, page, limit);
-    res.json({ 
-      success: true, 
-      message: 'All users fetched successfully.', 
-      ...response 
-    });
+    sendSuccess(res, response, 'All users fetched successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 }
 
@@ -28,13 +25,9 @@ export async function getAllPaymentSlips(req, res) {
   try {
     const { slips, total, page, limit } = await adminService.getAllPaymentSlips(req.pagination);
     const response = createPaginationResponse(slips, total, page, limit);
-    res.json({ 
-      success: true, 
-      message: 'Payment slips fetched successfully.', 
-      ...response 
-    });
+    sendSuccess(res, response, 'Payment slips fetched successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 }
 

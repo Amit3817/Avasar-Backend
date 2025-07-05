@@ -3,6 +3,7 @@ import { register, verifyOtp, login, resendOtp } from '../controllers/authContro
 import { registerValidator, loginValidator, otpValidator, resendOtpValidator } from '../validators/authValidators.js';
 import { validationResult } from 'express-validator';
 import { otpVerificationLimiter, otpResendLimiter } from '../middleware/otpLimiter.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -190,5 +191,64 @@ router.post('/login', loginValidator, handleValidation, login);
  *         description: Rate limit exceeded
  */
 router.post('/resend-otp', otpResendLimiter, resendOtpValidator, handleValidation, resendOtp);
+
+/**
+ * @swagger
+ * /api/auth/check-verification:
+ *   post:
+ *     summary: Check if user email is verified
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Verification status checked
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 exists:
+ *                   type: boolean
+ *                 isVerified:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ */
+router.post('/check-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.json({ 
+        exists: false, 
+        isVerified: false, 
+        message: 'No account found with this email' 
+      });
+    }
+    
+    return res.json({ 
+      exists: true, 
+      isVerified: user.isVerified, 
+      message: user.isVerified ? 'Email is verified' : 'Email is not verified'
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 export default router; 

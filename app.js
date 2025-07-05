@@ -10,6 +10,7 @@ import User from './models/User.js';
 import mongoSanitize from 'express-mongo-sanitize';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpecs from './config/swagger.js';
+import { validateEnvironment, getEnvironmentInfo } from './config/envValidation.js';
 dotenv.config();
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
@@ -19,15 +20,27 @@ import adminRoutes from './routes/admin.js';
 import withdrawalRoutes from './routes/withdrawal.js';
 import logger from './config/logger.js';
 
+// Validate environment variables
+try {
+  validateEnvironment();
+} catch (error) {
+  logger.error('Environment validation failed:', error.message);
+  process.exit(1);
+}
+
 const app = express();
 
 // Basic middleware
-app.use(cors({
-  origin: true, // Allow all origins
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? [process.env.FRONTEND_URL || 'https://avasar-growth-platform.vercel.app']
+    : true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static('uploads'));
@@ -45,15 +58,25 @@ const __dirname = path.dirname(__filename);
 // Create a write stream (in append mode) for server.log
 const logStream = fs.createWriteStream(path.join(__dirname, 'server.log'), { flags: 'a' });
 
-// Setup morgan to log all requests to server.log
+// Enhanced request logging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url}`);
+  const start = Date.now();
+  const userInfo = req.user ? `${req.user.email} (${req.user._id})` : 'anonymous';
+  
+  logger.info(`${req.method} ${req.url} - User: ${userInfo} - IP: ${req.ip}`);
+  
+  // Log response time
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info(`${req.method} ${req.url} - ${res.statusCode} - ${duration}ms`);
+  });
+  
   next();
 });
 
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error(err));
+  .then(() => logger.info('MongoDB connected'))
+  .catch(err => logger.error('MongoDB connection error:', err));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -104,10 +127,8 @@ cron.schedule('5 0 5 * *', async () => {
       }
       if (updated) await user.save();
     }
-    console.log('Monthly investment bonuses processed.');
     logger.info('Monthly investment bonuses processed.');
   } catch (err) {
-    console.error('Error processing investment bonuses:', err);
     logger.error('Error processing investment bonuses:', err);
   }
 });
@@ -116,10 +137,8 @@ cron.schedule('5 0 5 * *', async () => {
 cron.schedule('0 0 * * *', async () => {
   try {
     await User.updateMany({}, { $set: { matchingPairsToday: {} } });
-    console.log('Reset matchingPairsToday for all users.');
     logger.info('Reset matchingPairsToday for all users.');
   } catch (err) {
-    console.error('Error resetting matchingPairsToday:', err);
     logger.error('Error resetting matchingPairsToday:', err);
   }
 });
@@ -129,10 +148,8 @@ cron.schedule('1 0 1 * *', async () => {
   try {
     const investmentService = (await import('./services/investmentService.js')).default;
     const processed = await investmentService.processMonthlyPayouts();
-    console.log(`Monthly investment payouts processed for ${processed} investments.`);
     logger.info(`Monthly investment payouts processed for ${processed} investments.`);
   } catch (err) {
-    console.error('Error processing monthly investment payouts:', err);
     logger.error('Error processing monthly investment payouts:', err);
   }
 });

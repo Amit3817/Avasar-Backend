@@ -112,7 +112,8 @@ const authService = {
 
   async login({ email, password }) {
     const user = await User.findOne({ email });
-    if (!user || !user.isVerified) throw new Error('Invalid credentials or your email is not verified.');
+    if (!user) throw new Error('No account found with this email address.');
+    if (!user.isVerified) throw new Error('Your email is not verified. Please verify your email with the OTP sent during registration.');
     const match = await bcrypt.compare(password, user.password);
     if (!match) throw new Error('Incorrect password. Please try again.');
     

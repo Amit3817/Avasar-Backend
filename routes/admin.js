@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { paginationMiddleware } from '../middleware/pagination.js';
+import { validateUserExists, validateUserActive } from '../middleware/userValidation.js';
 import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus, getUserRewards } from '../controllers/adminController.js';
 import { adminUploadSlip, approveWithdrawal, rejectWithdrawal, getAllWithdrawals } from '../controllers/paymentController.js';
 import upload from '../middleware/upload.js';
@@ -16,7 +17,7 @@ const router = express.Router();
 router.get('/users', requireAuth, requireAdmin, paginationMiddleware, getAllUsers);
 
 // ADMIN: Update user income
-router.put('/user/:id/income', requireAuth, requireAdmin, userIdParamValidator, updateUserIncomeValidator, handleValidation, updateUserIncome);
+router.put('/user/:id/income', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, updateUserIncomeValidator, handleValidation, updateUserIncome);
 
 // ADMIN: Get all payment slips
 router.get('/payment-slips', requireAuth, requireAdmin, paginationMiddleware, getAllPaymentSlips);
@@ -28,7 +29,7 @@ router.put('/payment-slip/:id/status', requireAuth, requireAdmin, userIdParamVal
 router.post('/payment-slip/upload', requireAuth, requireAdmin, upload.single('file'), adminUploadSlip);
 
 // Admin: Get a user's reward milestones and awarded rewards
-router.get('/user/:id/rewards', requireAuth, requireAdmin, userIdParamValidator, handleValidation, getUserRewards);
+router.get('/user/:id/rewards', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, getUserRewards);
 
 function handleValidation(req, res, next) {
   const errors = validationResult(req);
@@ -39,7 +40,7 @@ function handleValidation(req, res, next) {
 }
 
 // Add route to get indirect referrals up to level 10
-router.get('/user/:id/indirect-referrals', userIdParamValidator, handleValidation, async (req, res) => {
+router.get('/user/:id/indirect-referrals', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
     const indirectIds = await referralService.getIndirectReferrals(id, 10);
@@ -51,7 +52,7 @@ router.get('/user/:id/indirect-referrals', userIdParamValidator, handleValidatio
 });
 
 // Get direct referrals (all leftChildren + rightChildren)
-router.get('/user/:id/direct-referrals', userIdParamValidator, handleValidation, async (req, res) => {
+router.get('/user/:id/direct-referrals', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.findById(id).select('leftChildren rightChildren');
@@ -68,7 +69,7 @@ router.get('/user/:id/direct-referrals', userIdParamValidator, handleValidation,
 });
 
 // Get direct left referrals (leftChildren)
-router.get('/user/:id/direct-left', userIdParamValidator, handleValidation, async (req, res) => {
+router.get('/user/:id/direct-left', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.findById(id).select('leftChildren');
@@ -81,7 +82,7 @@ router.get('/user/:id/direct-left', userIdParamValidator, handleValidation, asyn
 });
 
 // Get direct right referrals (rightChildren)
-router.get('/user/:id/direct-right', userIdParamValidator, handleValidation, async (req, res) => {
+router.get('/user/:id/direct-right', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.findById(id).select('rightChildren');
