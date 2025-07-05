@@ -31,6 +31,17 @@ router.post('/payment-slip/upload', requireAuth, requireAdmin, upload.single('fi
 // Admin: Get a user's reward milestones and awarded rewards
 router.get('/user/:id/rewards', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, getUserRewards);
 
+// Admin: Get user's referral income summary
+router.get('/user/:id/referral-summary', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const summary = await referralService.getUserReferralSummary(id);
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 function handleValidation(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

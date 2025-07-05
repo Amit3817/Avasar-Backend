@@ -17,13 +17,6 @@ import mongoose from 'mongoose';
 const REFERRAL_CODE_LENGTH = 8;
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No 0, 1, O, I, l
 
-// Assumed income values (to be revised later)
-const REFERRAL_INCOME = 100;
-const MATCHING_INCOME = 50;
-const GENERATION_INCOME = 20;
-const TRADING_INCOME = 10;
-const REWARD_INCOME = 200;
-
 function generateCode() {
   let code = '';
   const bytes = crypto.randomBytes(REFERRAL_CODE_LENGTH);
@@ -153,7 +146,15 @@ export async function addMatchingIncome(newUserId) {
 }
 
 export async function addRewardIncome(userId) {
-  await User.findByIdAndUpdate(userId, { $inc: { rewardIncome: REWARD_INCOME } });
+  // Add reward income for registration (this should be based on business logic)
+  // For now, using a fixed amount but this should be calculated based on the registration
+  const rewardAmount = 200; // This should come from business logic
+  await User.findByIdAndUpdate(userId, { 
+    $inc: { 
+      rewardIncome: rewardAmount,
+      walletBalance: rewardAmount 
+    } 
+  });
 }
 
 // Investment bonus logic
@@ -181,6 +182,8 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
         currentUser = parent;
         continue;
       }
+      
+      // One-time investment referral bonus
       const oneTimeBonus = Math.floor(investmentAmount * oneTimePercents[level]);
       if (oneTimeBonus > 0) {
         try {
@@ -196,6 +199,8 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
           logger.error(`Failed to update one-time bonus for user ${parent._id}:`, error);
         }
       }
+      
+      // Monthly investment return referral bonus
       const monthlyBonus = Math.floor(monthlyReturn * monthlyPercents[level]);
       if (monthlyBonus > 0) {
         try {
@@ -210,7 +215,9 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
               type: 'investmentReturn'
             });
           }
-          await User.findByIdAndUpdate(parent._id, { $set: { pendingInvestmentBonuses: pending } }, { session });
+          await User.findByIdAndUpdate(parent._id, { 
+            $set: { pendingInvestmentBonuses: pending }
+          }, { session });
         } catch (error) {
           logger.error(`Failed to update monthly bonuses for user ${parent._id}:`, error);
         }
@@ -221,6 +228,55 @@ export async function addInvestmentBonuses(investorId, investmentAmount) {
   } catch (error) {
     await session.abortTransaction();
     logger.error(`Error in addInvestmentBonuses for investor ${investorId}:`, error);
+    throw error;
+  } finally {
+    session.endSession();
+  }
+}
+
+// Process monthly investment return payouts for upline users
+export async function processInvestmentReturnPayouts() {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const users = await User.find({ 'pendingInvestmentBonuses.0': { $exists: true } }).session(session);
+    let processedCount = 0;
+    
+    for (const user of users) {
+      let updated = false;
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1; // 1-based
+      const currentYear = now.getFullYear();
+      
+      for (const bonus of user.pendingInvestmentBonuses) {
+        // Only process if not already awarded and for the current month/year
+        if (!bonus.awarded && bonus.type === 'investmentReturn') {
+          const bonusDate = new Date(bonus.createdAt);
+          const bonusMonth = bonusDate.getMonth() + bonus.month;
+          const bonusYear = bonusDate.getFullYear() + Math.floor((bonusDate.getMonth() + bonus.month - 1) / 12);
+          
+          if (bonusMonth === currentMonth && bonusYear === currentYear) {
+            // Award the monthly investment return bonus
+            user.investmentReferralReturnIncome = (user.investmentReferralReturnIncome || 0) + bonus.amount;
+            user.walletBalance = (user.walletBalance || 0) + bonus.amount;
+            bonus.awarded = true;
+            updated = true;
+            processedCount++;
+          }
+        }
+      }
+      
+      if (updated) {
+        await user.save({ session });
+      }
+    }
+    
+    await session.commitTransaction();
+    logger.info(`Processed ${processedCount} investment return payouts`);
+    return processedCount;
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error('Error processing investment return payouts:', error);
     throw error;
   } finally {
     session.endSession();

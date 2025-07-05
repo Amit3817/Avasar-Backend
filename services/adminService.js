@@ -1,6 +1,8 @@
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
-import { addReferralIncome, addMatchingIncome, addRewardIncome } from '../utils/referral.js';
+import referralService from './referralService.js';
+import investmentService from './investmentService.js';
+import logger from '../config/logger.js';
 
 const adminService = {
   async getAllUsers(pagination = {}) {
@@ -16,11 +18,6 @@ const adminService = {
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } }
       ];
-    }
-    
-    // Filter by status
-    if (status) {
-      query.paymentStatus = status;
     }
     
     // Date range filter
@@ -111,18 +108,37 @@ const adminService = {
     } else {
       update = { ...update, reason, remarks };
     }
+    
     const slip = await PaymentSlip.findByIdAndUpdate(id, update, { new: true });
     if (!slip) throw new Error('Payment slip not found.');
     await slip.save();
-    // Trigger referral logic only if this is the user's first approved slip of amount 3600
-    if (status === 'approved' && Number(slip.amount) === 3600) {
-      const prevApproved = await PaymentSlip.findOne({ user: slip.user, status: 'approved', amount: 3600, _id: { $ne: slip._id } });
-      if (!prevApproved) {
-        await addReferralIncome(slip.user);
-        await addMatchingIncome(slip.user);
-        await addRewardIncome(slip.user);
+    
+    // Trigger income updates when payment slip is approved
+    if (status === 'approved') {
+      try {
+        // If this is a registration payment (₹3600), trigger referral logic
+        if (Number(slip.amount) === 3600) {
+          logger.info(`Processing registration payment for user ${slip.user} with amount ₹${slip.amount}`);
+          const result = await referralService.processRegistrationReferralIncome(slip.user, slip._id);
+          if (result.success) {
+            logger.info(`Registration referral income processed successfully for user ${slip.user}`);
+          } else {
+            logger.info(`Registration already processed for user ${slip.user}`);
+          }
+        }
+        
+        // If this is an investment payment (₹10,000 or more), trigger investment logic
+        if (Number(slip.amount) >= 10000) {
+          logger.info(`Processing investment payment for user ${slip.user} with amount ₹${slip.amount}`);
+          await investmentService.approveInvestment(slip._id);
+          logger.info(`Investment processed successfully for user ${slip.user}`);
+        }
+      } catch (error) {
+        logger.error('Error triggering income updates after payment slip approval:', error.message);
+        // Don't throw error to avoid failing the approval
       }
     }
+    
     return slip;
   },
 

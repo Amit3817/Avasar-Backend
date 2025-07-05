@@ -2,6 +2,7 @@ import PaymentSlip from '../models/PaymentSlip.js';
 import User from '../models/User.js';
 import Withdrawal from '../models/Withdrawal.js';
 import { uploadPaymentSlip } from './cloudinaryService.js';
+import logger from '../config/logger.js';
 
 const paymentService = {
   async uploadSlip({ userId, file, amount, method, transactionId, isAdmin }) {
@@ -21,7 +22,7 @@ const paymentService = {
       method,
       status: isAdmin ? 'approved' : 'pending',
     });
-    await User.findByIdAndUpdate(userId, { paymentStatus: 'uploaded', paymentSlip: result.secure_url });
+    
     return slip;
   },
 
@@ -50,7 +51,7 @@ const paymentService = {
       verifiedBy: adminId,
       verifiedAt: new Date()
     });
-    await User.findByIdAndUpdate(userId, { paymentStatus: 'uploaded', paymentSlip: result.secure_url });
+    
     return slip;
   },
 

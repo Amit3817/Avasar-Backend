@@ -103,36 +103,6 @@ process.on('unhandledRejection', (reason) => {
   logger.error('UNHANDLED REJECTION:', reason);
 });
 
-// Cron job: pay out monthly investment bonuses on the 5th of every month at 00:05
-cron.schedule('5 0 5 * *', async () => {
-  try {
-    const users = await User.find({ 'pendingInvestmentBonuses.0': { $exists: true } });
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-based
-    const currentYear = now.getFullYear();
-    for (const user of users) {
-      let updated = false;
-      for (const bonus of user.pendingInvestmentBonuses) {
-        // Only pay if not already awarded, and for the current month/year
-        const bonusDate = new Date(bonus.createdAt);
-        const bonusMonth = bonusDate.getMonth() + bonus.month;
-        const bonusYear = bonusDate.getFullYear() + Math.floor((bonusDate.getMonth() + bonus.month - 1) / 12);
-        if (!bonus.awarded && bonusMonth === currentMonth && bonusYear === currentYear) {
-          user.investmentReferralIncome = (user.investmentReferralIncome || 0) + bonus.amount;
-          user.investmentReferralReturnIncome = (user.investmentReferralReturnIncome || 0) + bonus.amount;
-          user.walletBalance = (user.walletBalance || 0) + bonus.amount;
-          bonus.awarded = true;
-          updated = true;
-        }
-      }
-      if (updated) await user.save();
-    }
-    logger.info('Monthly investment bonuses processed.');
-  } catch (err) {
-    logger.error('Error processing investment bonuses:', err);
-  }
-});
-
 // Cron job: reset matchingPairsToday for all users at midnight
 cron.schedule('0 0 * * *', async () => {
   try {

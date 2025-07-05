@@ -1,7 +1,9 @@
+import mongoose from 'mongoose';
 import Investment from '../models/Investment.js';
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
-import { addInvestmentBonuses } from '../utils/referral.js';
+import referralService from './referralService.js';
+import logger from '../config/logger.js';
 
 class InvestmentService {
   // Calculate investment lock-in status and withdrawal restrictions
@@ -168,32 +170,93 @@ class InvestmentService {
   }
 
   async processMonthlyPayouts() {
-    // Process monthly ROI for all active investments
-    const investments = await Investment.find({ active: true });
-    let processed = 0;
-    for (const inv of investments) {
-      inv.monthsPaid += 1;
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
+    try {
+      // ✅ OPTIMIZED: Get all active investments in one query
+      const investments = await Investment.find({ active: true }).populate('user', '_id').session(session);
+      let processed = 0;
       
-      // Calculate and credit monthly ROI (4% of investment amount)
-      const monthlyROI = Math.floor(inv.amount * 0.04);
+      // ✅ OPTIMIZED: Bulk operations for user updates
+      const bulkUserOps = [];
+      const investmentUpdates = [];
       
-      // Update user's investment income and wallet balance
-      await User.findByIdAndUpdate(inv.user, {
-        $inc: {
-          investmentIncome: monthlyROI,
-          walletBalance: monthlyROI
+      for (const inv of investments) {
+        inv.monthsPaid += 1;
+        
+        // Calculate and credit monthly ROI (4% of investment amount)
+        const monthlyROI = Math.floor(inv.amount * 0.04);
+        
+        // Add to bulk operations
+        bulkUserOps.push({
+          updateOne: {
+            filter: { _id: inv.user._id },
+            update: {
+              $inc: {
+                investmentIncome: monthlyROI,
+                walletBalance: monthlyROI
+              }
+            }
+          }
+        });
+        
+        logger.info(`Processed monthly ROI of ₹${monthlyROI} for investment ${inv._id} (user: ${inv.user._id})`);
+        
+        // Deactivate investment after 24 months
+        if (inv.monthsPaid >= 24) {
+          inv.active = false;
+          logger.info(`Investment ${inv._id} deactivated after 24 months`);
         }
-      });
-      
-      // Deactivate investment after 24 months
-      if (inv.monthsPaid >= 24) {
-        inv.active = false;
+        
+        // Prepare investment updates
+        investmentUpdates.push({
+          updateOne: {
+            filter: { _id: inv._id },
+            update: {
+              $set: {
+                monthsPaid: inv.monthsPaid,
+                active: inv.active
+              }
+            }
+          }
+        });
+        
+        processed++;
       }
       
-      await inv.save();
-      processed++;
+      // ✅ OPTIMIZED: Execute bulk operations
+      if (bulkUserOps.length > 0) {
+        await User.bulkWrite(bulkUserOps, { session });
+      }
+      
+      if (investmentUpdates.length > 0) {
+        await Investment.bulkWrite(investmentUpdates, { session });
+      }
+      
+      await session.commitTransaction();
+      
+      // Process investment return payouts for upline users using referralService
+      try {
+        const result = await referralService.processMonthlyInvestmentReturns();
+        if (result.success) {
+          logger.info(`Monthly investment returns processed: ${result.processedCount} payouts`);
+        } else {
+          logger.warn(`Monthly investment returns processing failed: ${result.message}`);
+        }
+      } catch (error) {
+        logger.error('Error processing monthly investment returns:', error);
+      }
+      
+      logger.info(`Monthly payouts completed: ${processed} investments processed`);
+      return processed;
+    } catch (error) {
+      await session.abortTransaction();
+      logger.error('Error processing monthly payouts:', error);
+      throw error;
+    } finally {
+      session.endSession();
     }
-    return processed;
   }
 
   async getUserInvestmentsWithTotalIncome(userId) {
@@ -203,24 +266,72 @@ class InvestmentService {
   }
 
   async approveInvestment(slipId) {
-    const slip = await PaymentSlip.findById(slipId);
-    if (!slip) throw new Error('Payment slip not found.');
-    if (slip.status === 'approved') throw new Error('Slip already approved.');
-    if (Number(slip.amount) < 10000) throw new Error('Minimum investment is ₹10,000.');
-    slip.status = 'approved';
-    await slip.save();
-    const user = await User.findById(slip.user);
-    const now = new Date();
-    if (!user.totalInvestment || user.totalInvestment < Number(slip.amount)) {
-      user.totalInvestment = Number(slip.amount);
-      user.investmentStartDate = now;
-      user.investmentEndDate = new Date(now.getFullYear(), now.getMonth() + 24, now.getDate());
-      user.investmentIncome = 0;
-      await user.save();
-      await Investment.create({ user: user._id, amount: Number(slip.amount), startDate: now, monthsPaid: 0, active: true });
-      await addInvestmentBonuses(user._id, Number(slip.amount));
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
+    try {
+      const slip = await PaymentSlip.findById(slipId).session(session);
+      if (!slip) throw new Error('Payment slip not found.');
+      if (Number(slip.amount) < 10000) throw new Error('Minimum investment is ₹10,000.');
+      
+      // Check if investment already exists for this user
+      const existingInvestment = await Investment.findOne({ user: slip.user }).session(session);
+      if (existingInvestment) {
+        // Update existing investment
+        existingInvestment.amount = Math.max(existingInvestment.amount, Number(slip.amount));
+        await existingInvestment.save({ session });
+        
+        // Update user's total investment if needed
+        const user = await User.findById(slip.user).session(session);
+        if (!user.totalInvestment || user.totalInvestment < Number(slip.amount)) {
+          await User.findByIdAndUpdate(slip.user, {
+            totalInvestment: Number(slip.amount)
+          }, { session });
+        }
+      } else {
+        // Create new investment
+        const user = await User.findById(slip.user).session(session);
+        if (!user) throw new Error('User not found');
+        
+        const now = new Date();
+        user.totalInvestment = Number(slip.amount);
+        user.investmentStartDate = now;
+        user.investmentEndDate = new Date(now.getFullYear(), now.getMonth() + 24, now.getDate());
+        user.investmentIncome = 0;
+        await user.save({ session });
+        
+        await Investment.create([{ 
+          user: user._id, 
+          amount: Number(slip.amount), 
+          startDate: now, 
+          monthsPaid: 0, 
+          active: true 
+        }], { session });
+      }
+      
+      await session.commitTransaction();
+      
+      // Process investment bonuses after transaction commit
+      try {
+        const bonusResult = await referralService.processInvestmentBonuses(slip.user, Number(slip.amount));
+        if (bonusResult.success) {
+          logger.info(`Investment bonuses processed successfully for user ${slip.user}: ${bonusResult.oneTimeUpdates} one-time + ${bonusResult.monthlySchedules} monthly schedules`);
+        } else {
+          logger.warn(`Investment bonus processing failed for user ${slip.user}: ${bonusResult.message}`);
+        }
+      } catch (bonusError) {
+        logger.error(`Error processing investment bonuses for user ${slip.user}:`, bonusError);
+        // Don't fail the investment approval if bonus processing fails
+      }
+      
+      return slip;
+    } catch (error) {
+      await session.abortTransaction();
+      logger.error(`Error approving investment for slip ${slipId}:`, error);
+      throw error;
+    } finally {
+      session.endSession();
     }
-    return slip;
   }
 }
 
