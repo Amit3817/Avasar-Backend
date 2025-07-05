@@ -30,7 +30,7 @@ const adminService = {
     // Get total count
     const total = await User.countDocuments(query);
     
-    // Get paginated results
+    // Get paginated results with all income fields
     const users = await User.find(query)
       .sort(sort)
       .skip(skip)

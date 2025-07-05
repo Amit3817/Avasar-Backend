@@ -274,39 +274,49 @@ class InvestmentService {
       if (!slip) throw new Error('Payment slip not found.');
       if (Number(slip.amount) < 10000) throw new Error('Minimum investment is ₹10,000.');
       
+      const user = await User.findById(slip.user).session(session);
+      if (!user) throw new Error('User not found');
+      
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() + 24); // 24 months from now
+      
       // Check if investment already exists for this user
-      const existingInvestment = await Investment.findOne({ user: slip.user }).session(session);
+      const existingInvestment = await Investment.findOne({ user: slip.user, active: true }).session(session);
       if (existingInvestment) {
         // Update existing investment
         existingInvestment.amount = Math.max(existingInvestment.amount, Number(slip.amount));
+        existingInvestment.endDate = endDate;
         await existingInvestment.save({ session });
         
-        // Update user's total investment if needed
-        const user = await User.findById(slip.user).session(session);
-        if (!user.totalInvestment || user.totalInvestment < Number(slip.amount)) {
-          await User.findByIdAndUpdate(slip.user, {
-            totalInvestment: Number(slip.amount)
-          }, { session });
-        }
+        // Update user's total investment
+        await User.findByIdAndUpdate(slip.user, {
+          totalInvestment: Number(slip.amount),
+          investmentEndDate: endDate
+        }, { session });
+        
+        logger.info(`Updated existing investment for user ${slip.user}: amount=${existingInvestment.amount}, totalInvestment=${slip.amount}`);
       } else {
         // Create new investment
-        const user = await User.findById(slip.user).session(session);
-        if (!user) throw new Error('User not found');
-        
-        const now = new Date();
-        user.totalInvestment = Number(slip.amount);
-        user.investmentStartDate = now;
-        user.investmentEndDate = new Date(now.getFullYear(), now.getMonth() + 24, now.getDate());
-        user.investmentIncome = 0;
-        await user.save({ session });
+        await User.findByIdAndUpdate(slip.user, {
+          totalInvestment: Number(slip.amount),
+          investmentStartDate: now,
+          investmentEndDate: endDate,
+          investmentIncome: 0
+        }, { session });
         
         await Investment.create([{ 
           user: user._id, 
           amount: Number(slip.amount), 
-          startDate: now, 
+          startDate: now,
+          endDate: endDate,
           monthsPaid: 0, 
-          active: true 
+          active: true,
+          isLocked: true,
+          withdrawalRestriction: Number(slip.amount)
         }], { session });
+        
+        logger.info(`Created new investment for user ${slip.user}: amount=${slip.amount}, totalInvestment=${slip.amount}`);
       }
       
       await session.commitTransaction();

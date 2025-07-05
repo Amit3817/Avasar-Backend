@@ -51,10 +51,19 @@ const withdrawalService = {
   async approveWithdrawal(withdrawalId, adminId) {
     const withdrawal = await Withdrawal.findById(withdrawalId);
     if (!withdrawal) throw new Error('Withdrawal request not found.');
+    if (withdrawal.status === 'approved') return withdrawal; // Prevent double approval
     withdrawal.status = 'approved';
     withdrawal.verifiedBy = adminId;
     withdrawal.verifiedAt = new Date();
     await withdrawal.save();
+
+    // Subtract amount from user's walletBalance
+    const user = await User.findById(withdrawal.user);
+    if (user) {
+      user.walletBalance = Math.max(0, (user.walletBalance || 0) - (withdrawal.amount || 0));
+      await user.save();
+    }
+
     return withdrawal;
   },
 
