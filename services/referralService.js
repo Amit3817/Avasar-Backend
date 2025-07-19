@@ -82,15 +82,13 @@ const referralService = {
     }
   },
 
-  // Optimized: Process both referral and matching income in one function
+  // Process both referral and matching income in one function
   async processRegistrationIncome(newUserId, session = null) {
     const useSession = session || await mongoose.startSession();
     const shouldCommit = !session;
-    
     if (shouldCommit) {
       useSession.startTransaction();
     }
-    
     try {
       const regSlip = await PaymentSlip.findOne({ user: newUserId, status: 'approved', amount: REGISTRATION_AMOUNT }).session(useSession);
       if (!regSlip) {
@@ -100,17 +98,14 @@ const referralService = {
         }
         return { success: false, message: 'No approved registration payment found' };
       }
-      
       const regAmount = Number(regSlip.amount);
       const pairBonus = Math.floor(regAmount * 0.10);
       const today = new Date().toISOString().slice(0, 10);
-      
-      // ✅ OPTIMIZED: Get upline chain and new user in parallel
+      // Get upline chain and new user in parallel
       const [uplineChain, newUser] = await Promise.all([
         this.getUplineChain(newUserId, useSession),
         User.findById(newUserId).select('profile.position').session(useSession)
       ]);
-      
       if (!newUser) {
         if (shouldCommit) {
           await useSession.abortTransaction();
@@ -118,21 +113,15 @@ const referralService = {
         }
         return { success: false, message: 'New user not found' };
       }
-      
-      // ✅ OPTIMIZED: Get all direct referral counts in one query
       const uplineIds = uplineChain.map(user => user._id);
       const directCounts = await User.aggregate([
         { $match: { 'referral.referredBy': { $in: uplineIds } } },
         { $group: { _id: '$referral.referredBy', count: { $sum: 1 } } }
       ]).session(useSession);
-      
       const directCountMap = new Map(directCounts.map(item => [item._id.toString(), item.count]));
-      
-      // ✅ OPTIMIZED: Separate bulk operations to avoid conflicts
       const referralOps = [];
       const matchingOps = [];
       const rewardChecks = new Set();
-      
       // Process referral income for all levels
       for (let level = 1; level <= uplineChain.length; level++) {
         const parent = uplineChain[level - 1];
@@ -163,73 +152,51 @@ const referralService = {
         }
       }
       
-      // ✅ FIXED: Matching income - only process for direct referrer (level 1)
+      // Process matching income for all upline users
       if (uplineChain.length > 0) {
-        const directReferrer = uplineChain[0];
-        const requiredDirects = DIRECT_REQS[1] || 0;
-        const directCount = directCountMap.get(directReferrer._id.toString()) || 0;
-        
-        if (directCount >= requiredDirects) {
-          const leftCount = directReferrer.referral?.leftChildren?.length || 0;
-          const rightCount = directReferrer.referral?.rightChildren?.length || 0;
-          const newUserPosition = newUser.profile?.position;
+        for (let uplineLevel = 0; uplineLevel < uplineChain.length; uplineLevel++) {
+          const uplineParent = uplineChain[uplineLevel];
+          if (!uplineParent) continue;
           
-          // ✅ CRITICAL FIX: Calculate pairs correctly
-          // The new user has already been added to leftChildren/rightChildren by authService
-          // So we need to calculate pairs based on the current counts
-          const currentPairs = Math.min(leftCount, rightCount);
+          const uplineRequiredDirects = DIRECT_REQS[uplineLevel + 1] || 0;
+          const uplineDirectCount = directCountMap.get(uplineParent._id.toString()) || 0;
           
-          // Calculate pairs before this registration (remove the new user)
-          let pairsBefore = currentPairs;
-          if (newUserPosition === 'left' && leftCount > 0) {
-            pairsBefore = Math.min(leftCount - 1, rightCount);
-          } else if (newUserPosition === 'right' && rightCount > 0) {
-            pairsBefore = Math.min(leftCount, rightCount - 1);
-          }
+          if (uplineDirectCount < uplineRequiredDirects) continue;
           
-          // Check if new pairs were formed
-          const newPairsFormed = currentPairs - pairsBefore;
+          // Check if this user has both left and right children
+          const leftCount = uplineParent.referral?.leftChildren?.length || 0;
+          const rightCount = uplineParent.referral?.rightChildren?.length || 0;
           
-          if (newPairsFormed > 0) {
-            // Award matching income for each new pair formed
-            for (let pair = 0; pair < newPairsFormed; pair++) {
-              // Award matching income to the upline chain for each new pair
-              for (let uplineLevel = 1; uplineLevel <= uplineChain.length; uplineLevel++) {
-                const uplineParent = uplineChain[uplineLevel - 1];
-                if (!uplineParent) break;
-                
-                const uplineRequiredDirects = DIRECT_REQS[uplineLevel] || 0;
-                const uplineDirectCount = directCountMap.get(uplineParent._id.toString()) || 0;
-                
-                if (uplineDirectCount < uplineRequiredDirects) continue;
-                
-                // Check daily limit for matching income
-                const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
-                if (currentPairsToday < MAX_PAIRS_PER_DAY) {
-                  matchingOps.push({
-                    updateOne: {
-                      filter: { _id: uplineParent._id },
-                      update: {
-                        $inc: {
-                          'income.matchingIncome': pairBonus,
-                          'system.totalPairs': 1,
-                          'income.walletBalance': pairBonus,
-                          [`system.matchingPairsToday.${today}`]: 1
-                        }
-                      }
+          // Only award matching income if there are pairs
+          if (leftCount > 0 && rightCount > 0) {
+            // Calculate pairs
+            const pairs = Math.min(leftCount, rightCount);
+            
+            // Check daily limit for matching income
+            const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
+            if (currentPairsToday < MAX_PAIRS_PER_DAY) {
+              matchingOps.push({
+                updateOne: {
+                  filter: { _id: uplineParent._id },
+                  update: {
+                    $inc: {
+                      'income.matchingIncome': pairBonus,
+                      'system.totalPairs': 1,
+                      'income.walletBalance': pairBonus,
+                      [`system.matchingPairsToday.${today}`]: 1
                     }
-                  });
-                  
-                  // Track for reward checking
-                  rewardChecks.add(uplineParent._id.toString());
+                  }
                 }
-              }
+              });
+              
+              // Track for reward checking
+              rewardChecks.add(uplineParent._id.toString());
             }
           }
         }
       }
       
-      // ✅ OPTIMIZED: Execute bulk operations separately
+      // Execute bulk operations separately
       if (referralOps.length > 0) {
         await User.bulkWrite(referralOps, { session: useSession });
       }
@@ -238,7 +205,7 @@ const referralService = {
         await User.bulkWrite(matchingOps, { session: useSession });
       }
       
-      // ✅ OPTIMIZED: Check rewards for users who got matching income
+      // Check rewards for users who got matching income
       if (rewardChecks.size > 0) {
         const rewardUserIds = Array.from(rewardChecks);
         const updatedUsers = await User.find({ _id: { $in: rewardUserIds } }).session(useSession);
@@ -279,7 +246,7 @@ const referralService = {
     const uplineChain = [];
     let currentUserId = userId;
     
-    // ✅ OPTIMIZED: Use a more efficient approach to get upline chain
+    // Use a more efficient approach to get upline chain
     for (let level = 1; level <= 10; level++) {
       const currentUser = await User.findById(currentUserId)
         .select('referral.referredBy')
@@ -306,7 +273,7 @@ const referralService = {
     // The actual reward processing is handled in checkAndAwardRewards()
   },
 
-  // Optimized: Process investment bonuses for upline users
+  // Process investment bonuses for upline users
   async processInvestmentBonuses(investorId, investmentAmount) {
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -315,27 +282,19 @@ const referralService = {
       const monthlyPercents = INVESTMENT_MONTHLY_PERCENTS;
       const directReqs = DIRECT_REQS;
       const monthlyReturn = investmentAmount * MONTHLY_ROI_PERCENT;
-      
       const currentUser = await User.findById(investorId).session(session);
       if (!currentUser) {
         await session.abortTransaction();
         session.endSession();
         return { success: false, message: 'Investor not found' };
       }
-      
-      // ✅ OPTIMIZED: Get upline chain once
       const uplineChain = await this.getUplineChain(investorId, session);
-      
-      // ✅ OPTIMIZED: Get all direct referral counts in one query
       const uplineIds = uplineChain.map(user => user._id);
       const directCounts = await User.aggregate([
         { $match: { 'referral.referredBy': { $in: uplineIds } } },
         { $group: { _id: '$referral.referredBy', count: { $sum: 1 } } }
       ]).session(session);
-      
       const directCountMap = new Map(directCounts.map(item => [item._id.toString(), item.count]));
-      
-      // ✅ OPTIMIZED: Separate bulk operations to avoid conflicts
       const oneTimeBonusOps = [];
       const bonusUpdates = [];
       
@@ -344,7 +303,8 @@ const referralService = {
         if (!parent) break;
         
         const directCount = directCountMap.get(parent._id.toString()) || 0;
-        if (directCount < directReqs[level]) continue;
+        const requiredDirects = directReqs[level];
+        if (directCount < requiredDirects) continue;
         
         // One-time investment referral bonus
         const oneTimeBonus = Math.floor(investmentAmount * oneTimePercents[level]);
@@ -386,7 +346,7 @@ const referralService = {
         }
       }
       
-      // ✅ OPTIMIZED: Execute bulk operations
+      // Execute bulk operations
       if (oneTimeBonusOps.length > 0) {
         await User.bulkWrite(oneTimeBonusOps, { session });
       }
@@ -453,11 +413,7 @@ const referralService = {
         }
         
         if (updated) {
-          try {
-            await user.save({ session });
-          } catch (saveError) {
-            // Continue with other users
-          }
+          await user.save({ session });
         }
       }
       
@@ -483,7 +439,7 @@ const referralService = {
       const query = { 
         user: userId, 
         status: 'approved', 
-        amount: 3600 
+        amount: REGISTRATION_AMOUNT 
       };
       
       // Exclude current payment slip if provided
@@ -494,7 +450,7 @@ const referralService = {
       const prevApproved = await PaymentSlip.findOne(query);
       
       if (!prevApproved) {
-        // ✅ OPTIMIZED: Use combined function
+        // Use combined function
         const result = await this.processRegistrationIncome(userId);
         return result;
       } else {
@@ -537,6 +493,8 @@ const referralService = {
       throw error;
     }
   },
+  
+
 
   // Calculate and update user's team statistics
   async updateUserTeamStats(userId) {

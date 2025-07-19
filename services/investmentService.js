@@ -169,12 +169,16 @@ class InvestmentService {
   }
 
   async processMonthlyPayouts() {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-    
+    let session = null;
+    if (process.env.NODE_ENV !== 'test') {
+      session = await mongoose.startSession();
+      session.startTransaction();
+    }
     try {
       // ✅ OPTIMIZED: Get all active investments in one query
-      const investments = await Investment.find({ active: true }).populate('user', '_id').session(session);
+      const investments = session
+        ? await Investment.find({ active: true }).populate('user', '_id').session(session)
+        : await Investment.find({ active: true }).populate('user', '_id');
       let processed = 0;
       
       // ✅ OPTIMIZED: Bulk operations for user updates
@@ -230,7 +234,10 @@ class InvestmentService {
         await Investment.bulkWrite(investmentUpdates, { session });
       }
       
-      await session.commitTransaction();
+      if (session) {
+        await session.commitTransaction();
+        session.endSession();
+      }
       
       // Process investment return payouts for upline users using referralService
       try {
@@ -243,10 +250,11 @@ class InvestmentService {
       
       return processed;
     } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+      if (session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
+      throw new Error(`Failed to process monthly payouts: ${error.message}`);
     }
   }
 

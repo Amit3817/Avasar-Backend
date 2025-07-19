@@ -96,15 +96,18 @@ app.use((req, res, next) => {
 });
 
 // MongoDB connection with fallback for development
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/avasar-dev';
-mongoose.connect(mongoUri, productionConfig.database.options)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Continuing without MongoDB for development...');
-    }
-  });
+// Skip MongoDB connection during tests
+if (process.env.NODE_ENV !== 'test') {
+  const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/avasar-dev';
+  mongoose.connect(mongoUri, productionConfig.database.options)
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => {
+      console.error('MongoDB connection error:', err);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Continuing without MongoDB for development...');
+      }
+    });
+}
 
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -121,7 +124,10 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Only start server if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
 
 // Add this at the end of the file
 process.on('uncaughtException', (err) => {
@@ -158,3 +164,5 @@ cron.schedule('1 0 1 * *', async () => {
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 }); 
+
+export default app;

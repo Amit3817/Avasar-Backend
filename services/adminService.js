@@ -118,21 +118,33 @@ const adminService = {
     
     // Trigger income updates when payment slip is approved
     if (status === 'approved') {
-      try {
-        // If this is a registration payment (₹3600), trigger referral logic
-        if (Number(slip.amount) === 3600) {
-          const result = await referralService.processRegistrationReferralIncome(slip.user, slip._id);
-          if (result.success) {
-          } else {
-          }
+      // If this is a registration payment (₹3600), trigger referral logic
+      if (Number(slip.amount) === 3600) {
+        const result = await referralService.processRegistrationReferralIncome(slip.user, slip._id);
+        if (!result.success) {
+          throw new Error(result.message || 'Failed to process registration income');
+        }
+      }
+      
+      // If this is an investment payment (₹10,000 or more), trigger investment logic
+      if (Number(slip.amount) >= 10000) {
+        // Check if user has registration payment first
+        const hasRegistration = await PaymentSlip.findOne({
+          user: slip.user,
+          status: 'approved',
+          amount: 3600
+        });
+        
+        if (!hasRegistration) {
+          throw new Error('The first payment slip for this user must be for ₹3600');
         }
         
-        // If this is an investment payment (₹10,000 or more), trigger investment logic
-        if (Number(slip.amount) >= 10000) {
-          await investmentService.approveInvestment(slip._id);
+        // Check minimum investment amount
+        if (Number(slip.amount) < 10000) {
+          throw new Error('Minimum investment amount is ₹10,000');
         }
-      } catch (error) {
-        // Don't throw error to avoid failing the approval
+        
+        await investmentService.approveInvestment(slip._id);
       }
     }
     
