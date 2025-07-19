@@ -56,8 +56,16 @@ export const getUserWithdrawals = async (req, res) => {
 export const getAllWithdrawals = async (req, res) => {
   try {
     const withdrawals = await Withdrawal.find({})
-      .populate('user', 'fullName email phone')
-      .populate('verifiedBy', 'fullName email')
+      .populate({
+        path: 'user',
+        model: 'User',
+        select: 'profile.fullName auth.email profile.phone'
+      })
+      .populate({
+        path: 'verifiedBy',
+        model: 'User',
+        select: 'profile.fullName auth.email'
+      })
       .sort({ createdAt: -1 })
       .lean();
     

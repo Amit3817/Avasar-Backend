@@ -16,4 +16,9 @@ const paymentSlipSchema = new mongoose.Schema({
   slipLink: String, // URL to the uploaded slip
 });
 
+// Add indexes for frequently queried fields
+paymentSlipSchema.index({ user: 1, status: 1 });
+paymentSlipSchema.index({ status: 1, uploadedAt: -1 });
+paymentSlipSchema.index({ user: 1, amount: 1, status: 1 }); // For registration payment queries
+
 export default mongoose.model('PaymentSlip', paymentSlipSchema); 

@@ -1,11 +1,34 @@
 import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
+import investmentService from './investmentService.js';
 
 const withdrawalService = {
   async submitWithdrawal({ userId, amount, remarks, bankAccount, upiId }) {
+    console.log('Withdrawal request received:', { userId, amount, remarks, bankAccount: !!bankAccount, upiId: !!upiId });
+    
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found.');
-    const withdrawal = await Withdrawal.create({ user: userId, amount, remarks, bankAccount, upiId });
+    
+    // Check if the user can withdraw the requested amount
+    const withdrawalCheck = await investmentService.canWithdrawAmount(userId, amount);
+    console.log('Withdrawal check result:', withdrawalCheck);
+    
+    if (!withdrawalCheck.canWithdraw) {
+      throw new Error(withdrawalCheck.reason);
+    }
+    
+    // Create the withdrawal request with explicit status
+    const withdrawal = await Withdrawal.create({ 
+      user: userId, 
+      amount, 
+      remarks, 
+      bankAccount, 
+      upiId,
+      status: 'pending',
+      createdAt: new Date()
+    });
+    
+    console.log('Withdrawal request created:', withdrawal._id);
     return withdrawal;
   },
 
@@ -36,14 +59,29 @@ const withdrawalService = {
     // Get total count
     const total = await Withdrawal.countDocuments(query);
     
-    // Get paginated results
+    // Get paginated results with proper user population
     const withdrawals = await Withdrawal.find(query)
-      .populate('user', 'fullName email phone')
-      .populate('verifiedBy', 'fullName email')
+      .populate({
+        path: 'user',
+        model: 'User',
+        select: 'profile.fullName auth.email profile.phone'
+      })
+      .populate({
+        path: 'verifiedBy',
+        model: 'User',
+        select: 'profile.fullName auth.email'
+      })
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .lean();
+      
+    console.log('Withdrawals with populated users:', withdrawals.map(w => ({
+      id: w._id,
+      userId: w.user?._id,
+      userFullName: w.user?.profile?.fullName,
+      userEmail: w.user?.auth?.email
+    })));
     
     return { withdrawals, total, page, limit };
   },

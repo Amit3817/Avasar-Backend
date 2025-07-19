@@ -96,6 +96,17 @@ export const getUserProfile = async (req, res) => {
 export const getDirectReferrals = async (req, res) => {
   try {
     const directReferrals = await referralService.getDirectReferrals(req.user._id);
+    
+    // Update the user's direct referral count in the database
+    await User.findByIdAndUpdate(req.user._id, {
+      $set: {
+        'referral.directReferrals': directReferrals.length,
+        directReferrals: directReferrals.length,
+        directReferralCount: directReferrals.length
+      }
+    });
+    
+    // Return the original format for compatibility with frontend
     res.json(directReferrals);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -104,8 +115,18 @@ export const getDirectReferrals = async (req, res) => {
 
 export const getIndirectReferrals = async (req, res) => {
   try {
-    const indirectReferrals = await referralService.getIndirectReferrals(req.user._id);
-    res.json(indirectReferrals);
+    const indirectResult = await referralService.getIndirectReferrals(req.user._id);
+    
+    // Handle different return types but maintain original response format
+    if (typeof indirectResult === 'number') {
+      return res.json([]);
+    } else if (Array.isArray(indirectResult)) {
+      const users = await User.find({ _id: { $in: indirectResult } })
+        .select('profile.fullName auth.email profile.phone createdAt profile.position');
+      return res.json(users);
+    } else {
+      return res.json([]);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -114,6 +135,7 @@ export const getIndirectReferrals = async (req, res) => {
 export const getDirectLeft = async (req, res) => {
   try {
     const users = await referralService.getDirectLeft(req.user._id);
+    // Return the original format for compatibility with frontend
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -123,7 +145,78 @@ export const getDirectLeft = async (req, res) => {
 export const getDirectRight = async (req, res) => {
   try {
     const users = await referralService.getDirectRight(req.user._id);
+    // Return the original format for compatibility with frontend
     res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// New endpoint to update all counts for a user
+export const updateReferralCounts = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get direct referrals
+    const directReferrals = await referralService.getDirectReferrals(userId);
+    const directCount = directReferrals.length;
+    
+    // Get the user with leftChildren and rightChildren arrays
+    const currentUser = await User.findById(userId)
+      .select('referral.leftChildren referral.rightChildren')
+      .lean();
+    
+    // Count left and right team from the arrays
+    const leftTeamCount = Array.isArray(currentUser.referral?.leftChildren) ? 
+      currentUser.referral.leftChildren.length : 0;
+    
+    const rightTeamCount = Array.isArray(currentUser.referral?.rightChildren) ? 
+      currentUser.referral.rightChildren.length : 0;
+    
+    console.log(`Team counts from arrays: left=${leftTeamCount}, right=${rightTeamCount}`);
+    
+    // Get indirect referrals
+    const indirectResult = await referralService.getIndirectReferrals(userId);
+    let indirectCount = 0;
+    if (typeof indirectResult === 'number') {
+      indirectCount = indirectResult;
+    } else if (Array.isArray(indirectResult)) {
+      indirectCount = indirectResult.length;
+    }
+    
+    // Update user with all counts
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'referral.directReferrals': directCount,
+        'referral.directReferralCount': directCount,
+        'referral.teamSize': directCount + indirectCount,
+        'referral.indirectReferrals': indirectCount,
+        directReferrals: directCount,
+        directReferralCount: directCount,
+        teamSize: directCount + indirectCount,
+        indirectReferrals: indirectCount,
+        leftTeam: leftTeamCount,
+        rightTeam: rightTeamCount,
+        leftCount: leftTeamCount,
+        rightCount: rightTeamCount,
+        leftReferrals: leftTeamCount,
+        rightReferrals: rightTeamCount
+      }
+    });
+    
+    res.json({
+      success: true,
+      counts: {
+        directReferrals: directCount,
+        indirectReferrals: indirectCount,
+        leftTeam: leftTeamCount,
+        rightTeam: rightTeamCount,
+        leftCount: leftTeamCount,
+        rightCount: rightTeamCount,
+        leftReferrals: leftTeamCount,
+        rightReferrals: rightTeamCount
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

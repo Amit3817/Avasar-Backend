@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserInvestments, createInvestment, processMonthlyPayouts, approveInvestment } from '../controllers/investmentController.js';
+import { getUserInvestments, createInvestment, processMonthlyPayouts, approveInvestment, getInvestmentDetails } from '../controllers/investmentController.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { createInvestmentValidator } from '../validators/investmentValidators.js';
 import { validationResult } from 'express-validator';
@@ -9,6 +9,9 @@ const router = express.Router();
 
 // User: Get their investments
 router.get('/user', requireAuth, getUserInvestments);
+
+// User: Get details of a specific investment
+router.get('/user/:investmentId', requireAuth, getInvestmentDetails);
 
 // User: Get investment summary (alias for /user/investment-summary)
 router.get('/summary', requireAuth, async (req, res) => {

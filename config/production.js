@@ -9,7 +9,8 @@ export const productionConfig = {
       'https://avasar-frontend.vercel.app',
       'https://avasar-frontend.netlify.app',
       'https://avasar.com',
-      'https://www.avasar.com'
+      'https://www.avasar.com',
+      'http://localhost:3000' // Local development
     ]
   },
   

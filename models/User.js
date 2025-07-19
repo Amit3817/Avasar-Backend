@@ -23,11 +23,10 @@ const authSchema = new mongoose.Schema({
 
 // Referral subdocument
 const referralSchema = new mongoose.Schema({
-  referralCode: { type: String, unique: true, index: true },
+  referralCode: { type: String, unique: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   leftChildren: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   rightChildren: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  directReferralCount: { type: Number, default: 0 },
   directReferrals: { type: Number, default: 0 },
   teamSize: { type: Number, default: 0 }
 }, { _id: false });
@@ -53,6 +52,7 @@ const investmentSchema = new mongoose.Schema({
   investmentLockInPeriod: { type: Number, default: 24 },
   investmentIsLocked: { type: Boolean, default: false },
   lockedInvestmentAmount: { type: Number, default: 0 },
+  availableAmount: { type: Number, default: 0 },
   availableForWithdrawal: { type: Number, default: 0 },
   pendingInvestmentBonuses: { type: Array, default: [] }
 }, { _id: false });
@@ -109,6 +109,8 @@ userSchema.virtual('rewardIncome').get(function() { return this.income?.rewardIn
 userSchema.virtual('investmentIncome').get(function() { return this.income?.investmentIncome; });
 userSchema.virtual('investmentReferralPrincipalIncome').get(function() { return this.income?.investmentReferralPrincipalIncome; });
 userSchema.virtual('investmentReferralReturnIncome').get(function() { return this.income?.investmentReferralReturnIncome; });
+userSchema.virtual('availableForWithdrawal').get(function() { return this.investment?.availableForWithdrawal; });
+userSchema.virtual('availableAmount').get(function() { return this.investment?.availableAmount; });
 
 // Virtual setters for backward compatibility
 userSchema.virtual('fullName').set(function(value) { if (!this.profile) this.profile = {}; this.profile.fullName = value; });
@@ -132,9 +134,12 @@ userSchema.virtual('rewardIncome').set(function(value) { if (!this.income) this.
 userSchema.virtual('investmentIncome').set(function(value) { if (!this.income) this.income = {}; this.income.investmentIncome = value; });
 userSchema.virtual('investmentReferralPrincipalIncome').set(function(value) { if (!this.income) this.income = {}; this.income.investmentReferralPrincipalIncome = value; });
 userSchema.virtual('investmentReferralReturnIncome').set(function(value) { if (!this.income) this.income = {}; this.income.investmentReferralReturnIncome = value; });
+userSchema.virtual('availableForWithdrawal').set(function(value) { if (!this.investment) this.investment = {}; this.investment.availableForWithdrawal = value; });
+userSchema.virtual('availableAmount').set(function(value) { if (!this.investment) this.investment = {}; this.investment.availableAmount = value; });
 
 // Enable virtuals in JSON
 userSchema.set('toJSON', { virtuals: true });
 userSchema.set('toObject', { virtuals: true });
 
-export default mongoose.model('User', userSchema); 
+const User = mongoose.model('User', userSchema);
+export default User;

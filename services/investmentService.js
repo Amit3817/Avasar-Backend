@@ -16,11 +16,13 @@ class InvestmentService {
       let totalLockedAmount = 0;
       let totalAvailableAmount = 0;
       let isAnyInvestmentLocked = false;
+      let totalInvestment = 0;
 
       for (const investment of investments) {
         const now = new Date();
         const investmentEndDate = new Date(investment.endDate);
         const isLocked = now < investmentEndDate;
+        totalInvestment += investment.amount;
 
         if (isLocked) {
           totalLockedAmount += investment.amount;
@@ -32,21 +34,47 @@ class InvestmentService {
           investment.isLocked = false;
           investment.withdrawalRestriction = 0;
         }
+        
+        console.log(`Investment ${investment._id}: amount=${investment.amount}, isLocked=${isLocked}, totalAvailableAmount=${totalAvailableAmount}`);
 
         await investment.save();
       }
 
-      // Update user's investment status
-      user.investmentIsLocked = isAnyInvestmentLocked;
-      user.lockedInvestmentAmount = totalLockedAmount;
-      user.availableForWithdrawal = totalAvailableAmount;
-
+      // Ensure income and walletBalance exist
+      if (!user.income) user.income = {};
+      if (user.income.walletBalance === undefined) user.income.walletBalance = 0;
+      
+      // Save the user to ensure the income fields exist
+      try {
+        await user.save();
+      } catch (saveError) {
+        console.error('Error saving user:', saveError);
+      }
+      
       // Calculate available wallet balance for withdrawal
-      const totalWalletBalance = user.income?.walletBalance || 0;
-      const availableForWithdrawal = Math.max(0, totalWalletBalance - totalLockedAmount);
-      user.availableForWithdrawal = availableForWithdrawal;
-
-      await user.save();
+      const totalWalletBalance = user.income.walletBalance;
+      // Available for withdrawal is wallet balance PLUS available investment amount
+      const availableForWithdrawal = totalWalletBalance + totalAvailableAmount;
+      
+      console.log('Investment status calculation:', {
+        userId,
+        totalWalletBalance,
+        userWalletBalance: user.income?.walletBalance,
+        totalLockedAmount,
+        totalAvailableAmount,
+        availableForWithdrawal
+      });
+      
+      // Update only the necessary fields in the user model
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          'investment.availableForWithdrawal': availableForWithdrawal,
+          'investment.totalInvestment': totalInvestment,
+          'investment.lockedInvestmentAmount': totalLockedAmount,
+          'investment.availableAmount': totalAvailableAmount,
+          'income.walletBalance': totalWalletBalance || 0
+        }
+      });
 
       return {
         isLocked: isAnyInvestmentLocked,
@@ -54,6 +82,7 @@ class InvestmentService {
         availableAmount: totalAvailableAmount,
         totalWalletBalance,
         availableForWithdrawal,
+        totalInvestment,
         investments: investments.map(inv => ({
           id: inv._id,
           amount: inv.amount,
@@ -61,7 +90,7 @@ class InvestmentService {
           endDate: inv.endDate,
           isLocked: inv.isLocked,
           withdrawalRestriction: inv.withdrawalRestriction,
-          monthsRemaining: inv.isLocked ? this.calculateMonthsRemaining(inv.endDate) : 0
+          daysRemaining: inv.isLocked ? this.calculateMonthsRemaining(inv.endDate) : 0
         }))
       };
     } catch (error) {
@@ -69,13 +98,13 @@ class InvestmentService {
     }
   }
 
-  // Calculate months remaining until investment is unlocked
+  // Calculate days remaining until investment is unlocked
   calculateMonthsRemaining(endDate) {
     const now = new Date();
     const end = new Date(endDate);
     const diffTime = end - now;
-    const diffMonths = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 30.44)); // Average days per month
-    return Math.max(0, diffMonths);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // Days remaining
+    return Math.max(0, diffDays);
   }
 
   // Check if user can withdraw a specific amount
@@ -83,11 +112,37 @@ class InvestmentService {
     try {
       const status = await this.calculateInvestmentStatus(userId);
       
-      if (amount > status.availableForWithdrawal) {
+      // Get total pending withdrawals
+      const pendingWithdrawals = await mongoose.model('Withdrawal').find({ 
+        user: userId, 
+        status: 'pending' 
+      });
+      
+      // Get approved withdrawals that might not be reflected in wallet balance yet
+      const recentApprovedWithdrawals = await mongoose.model('Withdrawal').find({
+        user: userId,
+        status: 'approved',
+        verifiedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+      });
+      
+      const pendingAmount = pendingWithdrawals.reduce((sum, w) => sum + w.amount, 0);
+      const recentApprovedAmount = recentApprovedWithdrawals.reduce((sum, w) => sum + w.amount, 0);
+      const actuallyAvailable = status.availableForWithdrawal - pendingAmount - recentApprovedAmount;
+      
+      console.log('Withdrawal check:', {
+        userId,
+        requestedAmount: amount,
+        availableForWithdrawal: status.availableForWithdrawal,
+        pendingAmount,
+        recentApprovedAmount,
+        actuallyAvailable
+      });
+      
+      if (amount > actuallyAvailable) {
         return {
           canWithdraw: false,
-          reason: `Insufficient available balance. You can only withdraw ₹${status.availableForWithdrawal.toFixed(2)}`,
-          availableAmount: status.availableForWithdrawal
+          reason: `Insufficient available balance. You can only withdraw ₹${actuallyAvailable.toFixed(2)} (including pending withdrawals)`,
+          availableAmount: actuallyAvailable
         };
       }
 
@@ -95,13 +150,13 @@ class InvestmentService {
         return {
           canWithdraw: false,
           reason: 'Minimum withdrawal amount is ₹100',
-          availableAmount: status.availableForWithdrawal
+          availableAmount: actuallyAvailable
         };
       }
 
       return {
         canWithdraw: true,
-        availableAmount: status.availableForWithdrawal,
+        availableAmount: actuallyAvailable,
         reason: null
       };
     } catch (error) {
@@ -114,9 +169,17 @@ class InvestmentService {
     try {
       const status = await this.calculateInvestmentStatus(userId);
       const user = await User.findById(userId);
+      
+      console.log('Investment summary for user:', {
+        userId,
+        statusAvailableForWithdrawal: status.availableForWithdrawal,
+        userInvestmentAvailableForWithdrawal: user.investment?.availableForWithdrawal,
+        walletBalance: user.income?.walletBalance,
+        totalAvailableAmount: status.availableAmount
+      });
 
       return {
-        totalInvestment: user.investment?.totalInvestment || 0,
+        totalInvestment: status.totalInvestment,
         lockedAmount: status.lockedAmount,
         availableAmount: status.availableAmount,
         totalWalletBalance: status.totalWalletBalance,
@@ -132,9 +195,9 @@ class InvestmentService {
   }
 
   // Create new investment with lock-in period
-  async createInvestment(userId, amount) {
+  async createInvestment(userId, amount, verificationDate = null) {
     try {
-      const startDate = new Date();
+      const startDate = verificationDate || new Date();
       const endDate = new Date(startDate);
       endDate.setMonth(endDate.getMonth() + 24); // 24 months lock-in
 
@@ -148,14 +211,8 @@ class InvestmentService {
         withdrawalRestriction: amount
       });
 
-      // Update user's total investment
-      await User.findByIdAndUpdate(userId, {
-        $inc: { 'investment.totalInvestment': amount },
-        'investment.investmentStartDate': startDate,
-        'investment.investmentEndDate': endDate,
-        'investment.investmentIsLocked': true,
-        $inc: { 'investment.lockedInvestmentAmount': amount }
-      });
+      // Recalculate investment status
+      await this.calculateInvestmentStatus(userId);
 
       return investment;
     } catch (error) {
@@ -175,63 +232,93 @@ class InvestmentService {
       session.startTransaction();
     }
     try {
-      // ✅ OPTIMIZED: Get all active investments in one query
-      const investments = session
-        ? await Investment.find({ active: true }).populate('user', '_id').session(session)
-        : await Investment.find({ active: true }).populate('user', '_id');
-      let processed = 0;
+      // Use aggregation to get active investments and calculate ROI in one query
+      const pipeline = [
+        { $match: { active: true } },
+        { $project: {
+            user: 1,
+            amount: 1,
+            monthsPaid: 1,
+            active: 1,
+            isLocked: 1,
+            withdrawalRestriction: 1,
+            monthlyROI: { $floor: { $multiply: ['$amount', 0.04] } }
+        }},
+        { $group: {
+            _id: '$user',
+            totalMonthlyROI: { $sum: '$monthlyROI' },
+            investments: { $push: '$$ROOT' }
+        }}
+      ];
       
-      // ✅ OPTIMIZED: Bulk operations for user updates
+      const userInvestmentsResult = session
+        ? await Investment.aggregate(pipeline).session(session)
+        : await Investment.aggregate(pipeline);
+      
+      let processed = 0;
       const bulkUserOps = [];
       const investmentUpdates = [];
+      const userIds = [];
       
-      for (const inv of investments) {
-        inv.monthsPaid += 1;
+      // Process each user's investments
+      for (const userInv of userInvestmentsResult) {
+        const userId = userInv._id;
+        userIds.push(userId);
         
-        // Calculate and credit monthly ROI (4% of investment amount)
-        const monthlyROI = Math.floor(inv.amount * 0.04);
-        
-        // Add to bulk operations
+        // Add user update operation
         bulkUserOps.push({
           updateOne: {
-            filter: { _id: inv.user._id },
+            filter: { _id: userId },
             update: {
               $inc: {
-                'income.investmentIncome': monthlyROI,
-                'income.walletBalance': monthlyROI
+                'income.investmentIncome': userInv.totalMonthlyROI,
+                'income.walletBalance': userInv.totalMonthlyROI
               }
             }
           }
         });
         
-        // Deactivate investment after 24 months
-        if (inv.monthsPaid >= 24) {
-          inv.active = false;
+        // Process each investment
+        for (const inv of userInv.investments) {
+          const newMonthsPaid = inv.monthsPaid + 1;
+          const shouldDeactivate = newMonthsPaid >= 24;
+          
+          investmentUpdates.push({
+            updateOne: {
+              filter: { _id: inv._id },
+              update: {
+                $set: {
+                  monthsPaid: newMonthsPaid,
+                  active: !shouldDeactivate,
+                  isLocked: !shouldDeactivate && (inv.isLocked || false),
+                  withdrawalRestriction: shouldDeactivate ? 0 : (inv.withdrawalRestriction || 0)
+                }
+              }
+            }
+          });
+          
+          processed++;
         }
-        
-        // Prepare investment updates
-        investmentUpdates.push({
-          updateOne: {
-            filter: { _id: inv._id },
-            update: {
-              $set: {
-                monthsPaid: inv.monthsPaid,
-                active: inv.active
-              }
-            }
-          }
-        });
-        
-        processed++;
       }
       
-      // ✅ OPTIMIZED: Execute bulk operations
+      // Execute bulk operations in parallel for better performance
+      const bulkOperations = [];
+      
       if (bulkUserOps.length > 0) {
-        await User.bulkWrite(bulkUserOps, { session });
+        bulkOperations.push(User.bulkWrite(bulkUserOps, { session }));
       }
       
       if (investmentUpdates.length > 0) {
-        await Investment.bulkWrite(investmentUpdates, { session });
+        bulkOperations.push(Investment.bulkWrite(investmentUpdates, { session }));
+      }
+      
+      await Promise.all(bulkOperations);
+      
+      // Update investment status for all affected users in batches
+      const batchSize = 10;
+      for (let i = 0; i < userIds.length; i += batchSize) {
+        const batch = userIds.slice(i, i + batchSize);
+        await Promise.all(batch.map(userId => this.calculateInvestmentStatus(userId)));
       }
       
       if (session) {
@@ -239,14 +326,9 @@ class InvestmentService {
         session.endSession();
       }
       
-      // Process investment return payouts for upline users using referralService
-      try {
-        const result = await referralService.processMonthlyInvestmentReturns();
-        if (result.success) {
-        } else {
-        }
-      } catch (error) {
-      }
+      // We'll process investment return payouts for upline users directly in the cron job
+      // This ensures it runs even if there are no investments to process
+      console.log('Investment payouts completed, investment return referrals will be processed separately');
       
       return processed;
     } catch (error) {
@@ -261,7 +343,33 @@ class InvestmentService {
   async getUserInvestmentsWithTotalIncome(userId) {
     const investments = await Investment.find({ user: userId }).lean();
     const totalIncome = investments.reduce((sum, inv) => sum + Math.floor(inv.amount * 0.04 * inv.monthsPaid), 0);
-    return { investments, totalIncome };
+    
+    // Calculate days remaining for each investment
+    const investmentsWithDetails = investments.map(inv => {
+      const now = new Date();
+      const endDate = new Date(inv.endDate);
+      const isLocked = now < endDate;
+      
+      // Use investment's startDate
+      const startDate = inv.startDate;
+      
+      return {
+        ...inv,
+        isLocked,
+        daysRemaining: isLocked ? this.calculateMonthsRemaining(inv.endDate) : 0,
+        monthlyReturn: Math.floor(inv.amount * 0.04),
+        totalReturn: Math.floor(inv.amount * 0.04 * inv.monthsPaid),
+        startDate: startDate
+      };
+    });
+    
+    return { 
+      investments: investmentsWithDetails, 
+      totalIncome,
+      totalInvestments: investments.length,
+      activeInvestments: investments.filter(inv => inv.active).length,
+      lockedInvestments: investments.filter(inv => new Date() < new Date(inv.endDate)).length
+    };
   }
 
   async approveInvestment(slipId) {
@@ -277,50 +385,39 @@ class InvestmentService {
       if (!user) throw new Error('User not found');
       
       const investmentAmount = Number(slip.amount);
-      const now = new Date();
-      const endDate = new Date(now);
-      endDate.setMonth(endDate.getMonth() + 24); // 24 months from now
+      // Use current date as the start date for lock-in period
+      const startDate = new Date();
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 24); // 24 months from verification date
       
-      // Check if investment already exists for this user
-      const existingInvestment = await Investment.findOne({ user: slip.user, active: true }).session(session);
+      // Always create a new investment for each payment slip
+      // This allows tracking multiple investments with different lock-in periods
+      await Investment.create([{ 
+        user: user._id, 
+        amount: investmentAmount, 
+        startDate: startDate,
+        endDate: endDate,
+        monthsPaid: 0, 
+        active: true,
+        isLocked: true,
+        withdrawalRestriction: investmentAmount,
+        lockInPeriod: 24,
+        // No payment slip reference needed
+      }], { session });
       
-      if (existingInvestment) {
-        // Update existing investment - add to current amount
-        const newTotalAmount = existingInvestment.amount + investmentAmount;
-        existingInvestment.amount = newTotalAmount;
-        existingInvestment.endDate = endDate;
-        await existingInvestment.save({ session });
-        
-        // Update user's total investment - add to current total
-        await User.findByIdAndUpdate(slip.user, {
-          $inc: { 'investment.totalInvestment': investmentAmount },
-          'investment.investmentEndDate': endDate
-        }, { session });
-      } else {
-        // Create new investment
-        await Investment.create([{ 
-          user: user._id, 
-          amount: investmentAmount, 
-          startDate: now,
-          endDate: endDate,
-          monthsPaid: 0, 
-          active: true,
-          isLocked: true,
-          withdrawalRestriction: investmentAmount,
-          lockInPeriod: 24
-        }], { session });
-        
-        // Update user's total investment
-        await User.findByIdAndUpdate(slip.user, {
-          'investment.totalInvestment': investmentAmount,
-          'investment.investmentStartDate': now,
-          'investment.investmentEndDate': endDate,
-          'investment.investmentIsLocked': true,
-          'investment.lockedInvestmentAmount': investmentAmount
-        }, { session });
-      }
+      // Update the user's wallet balance
+      await User.findByIdAndUpdate(user._id, {
+        $inc: { 'income.walletBalance': 0 } // Just to ensure the field exists
+      }, { session });
+      
+      // We'll recalculate the total investment and locked amount after the transaction
+      // This is more accurate than incrementing values in the user model
       
       await session.commitTransaction();
+      session.endSession();
+      
+      // Recalculate investment status after transaction is committed
+      await this.calculateInvestmentStatus(slip.user);
       
       // Process investment bonuses after transaction commit
       try {

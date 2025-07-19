@@ -79,8 +79,16 @@ const adminService = {
     
     // Get paginated results
     const slips = await PaymentSlip.find(query)
-      .populate('user', 'fullName email phone')
-      .populate('verifiedBy', 'fullName email')
+      .populate({
+        path: 'user',
+        model: 'User',
+        select: 'profile.fullName auth.email profile.phone'
+      })
+      .populate({
+        path: 'verifiedBy',
+        model: 'User',
+        select: 'profile.fullName auth.email'
+      })
       .sort(sortBy)
       .skip(skip)
       .limit(limit)
@@ -92,11 +100,12 @@ const adminService = {
   async updatePaymentSlipStatus(id, { status, reason, remarks }, adminId) {
     let update = { status };
     if (status === 'approved') {
+      const now = new Date();
       update = {
         ...update,
         reason,
         verifiedBy: adminId,
-        verifiedAt: new Date(),
+        verifiedAt: now,
         remarks: remarks || undefined,
         rejectedAt: undefined
       };

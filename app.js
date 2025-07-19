@@ -149,12 +149,23 @@ cron.schedule('0 0 * * *', async () => {
   }
 });
 
-// Cron job: process monthly investment payouts on the 1st of every month at 00:01
-cron.schedule('1 0 1 * *', async () => {
+// Cron job: process monthly investment payouts every 3 minutes
+cron.schedule('*/3 * * * *', async () => {
   try {
+    console.log('Running monthly investment payouts cron job...');
     const investmentService = (await import('./services/investmentService.js')).default;
     const processed = await investmentService.processMonthlyPayouts();
     console.log(`Monthly investment payouts processed for ${processed} investments.`);
+    
+    // Process investment return referrals
+    try {
+      console.log('Running monthly investment return referrals processing...');
+      const referralService = (await import('./services/referralService.js')).default;
+      const result = await referralService.processMonthlyInvestmentReturns();
+      console.log('Monthly investment return referrals processed:', result);
+    } catch (refErr) {
+      console.error('Error processing monthly investment return referrals:', refErr);
+    }
   } catch (err) {
     console.error('Error processing monthly investment payouts:', err);
   }

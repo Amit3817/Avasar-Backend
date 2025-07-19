@@ -8,6 +8,7 @@ import upload from '../middleware/upload.js';
 import User from '../models/User.js';
 import Withdrawal from '../models/Withdrawal.js';
 import referralService from '../services/referralService.js';
+import investmentService from '../services/investmentService.js';
 import { userIdParamValidator, withdrawalIdParamValidator, updateUserIncomeValidator } from '../validators/adminValidators.js';
 import { validationResult } from 'express-validator';
 
@@ -42,6 +43,27 @@ router.get('/user/:id/referral-summary', requireAuth, requireAdmin, validateUser
   }
 });
 
+// Admin: Get user's investment summary
+router.get('/user/:id/investment-summary', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const summary = await investmentService.getInvestmentSummary(id);
+    res.json({ 
+      success: true, 
+      data: { summary }, 
+      message: 'Investment summary fetched successfully!', 
+      error: null 
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      data: null, 
+      message: 'Failed to fetch investment summary.', 
+      error: err.message 
+    });
+  }
+});
+
 function handleValidation(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -54,11 +76,25 @@ function handleValidation(req, res, next) {
 router.get('/user/:id/indirect-referrals', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const indirectIds = await referralService.getIndirectReferrals(id, 10);
-    const users = await User.find({ _id: { $in: indirectIds } });
-    res.json(users);
+    const indirectResult = await referralService.getIndirectReferrals(id, 10);
+    
+    // If indirectResult is a number (not an array of IDs), return empty array
+    if (typeof indirectResult === 'number') {
+      return res.json([]);
+    }
+    
+    // Only try to find users if indirectIds is an array with elements
+    if (Array.isArray(indirectResult) && indirectResult.length > 0) {
+      const users = await User.find({ _id: { $in: indirectResult } })
+        .select('profile.fullName auth.email profile.phone createdAt profile.position');
+      return res.json(users);
+    }
+    
+    // Default: return empty array
+    return res.json([]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching indirect referrals:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch indirect referrals' });
   }
 });
 
@@ -66,16 +102,15 @@ router.get('/user/:id/indirect-referrals', requireAuth, requireAdmin, validateUs
 router.get('/user/:id/direct-referrals', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('referral');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const allIds = [
-      ...(user.referral?.leftChildren || []),
-      ...(user.referral?.rightChildren || [])
-    ];
-    const users = await User.find({ _id: { $in: allIds } });
-    res.json(users);
+    
+    // Use the referralService method instead of direct DB access
+    const directReferrals = await referralService.getDirectReferrals(id);
+    
+    // Return the original format for compatibility
+    res.json(directReferrals);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching direct referrals:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch direct referrals' });
   }
 });
 
@@ -83,12 +118,13 @@ router.get('/user/:id/direct-referrals', requireAuth, requireAdmin, validateUser
 router.get('/user/:id/direct-left', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('referral');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const users = await User.find({ _id: { $in: user.referral?.leftChildren || [] } });
-    res.json(users);
+    // Use the referralService method instead of direct DB access
+    const leftReferrals = await referralService.getDirectLeft(id);
+    // Return the original format for compatibility
+    res.json(leftReferrals);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching left referrals:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch left referrals' });
   }
 });
 
@@ -96,12 +132,13 @@ router.get('/user/:id/direct-left', requireAuth, requireAdmin, validateUserExist
 router.get('/user/:id/direct-right', requireAuth, requireAdmin, validateUserExists, validateUserActive, userIdParamValidator, handleValidation, async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).select('referral');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    const users = await User.find({ _id: { $in: user.referral?.rightChildren || [] } });
-    res.json(users);
+    // Use the referralService method instead of direct DB access
+    const rightReferrals = await referralService.getDirectRight(id);
+    // Return the original format for compatibility
+    res.json(rightReferrals);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching right referrals:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch right referrals' });
   }
 });
 
