@@ -11,9 +11,10 @@ const adminService = {
     // Build query
     let query = {};
     
-    // Search by name or email
+    // Search by name, email, phone, or avasarId
     if (search) {
       query.$or = [
+        { avasarId: { $regex: search, $options: 'i' } },
         { fullName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } }
@@ -35,7 +36,8 @@ const adminService = {
       .sort(sort)
       .skip(skip)
       .limit(limit)
-      .select('-password -otp -otpExpires')
+      .select('avasarId profile auth.email auth.isAdmin auth.isVerified referral.referredBy referral.referralCode referral.leftChildren referral.rightChildren income.walletBalance income.referralIncome income.matchingIncome income.rewardIncome income.investmentIncome investment.totalInvestment investment.availableForWithdrawal investment.lockedInvestmentAmount system.pairs system.totalPairs system.awardedRewards createdAt')
+      .populate('referral.referredBy', 'avasarId profile.fullName auth.email')
       .lean();
     
     return { users, total, page, limit };

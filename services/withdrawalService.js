@@ -4,14 +4,12 @@ import investmentService from './investmentService.js';
 
 const withdrawalService = {
   async submitWithdrawal({ userId, amount, remarks, bankAccount, upiId }) {
-    console.log('Withdrawal request received:', { userId, amount, remarks, bankAccount: !!bankAccount, upiId: !!upiId });
     
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found.');
     
     // Check if the user can withdraw the requested amount
     const withdrawalCheck = await investmentService.canWithdrawAmount(userId, amount);
-    console.log('Withdrawal check result:', withdrawalCheck);
     
     if (!withdrawalCheck.canWithdraw) {
       throw new Error(withdrawalCheck.reason);
@@ -28,7 +26,6 @@ const withdrawalService = {
       createdAt: new Date()
     });
     
-    console.log('Withdrawal request created:', withdrawal._id);
     return withdrawal;
   },
 
@@ -76,13 +73,6 @@ const withdrawalService = {
       .limit(limit)
       .lean();
       
-    console.log('Withdrawals with populated users:', withdrawals.map(w => ({
-      id: w._id,
-      userId: w.user?._id,
-      userFullName: w.user?.profile?.fullName,
-      userEmail: w.user?.auth?.email
-    })));
-    
     return { withdrawals, total, page, limit };
   },
 

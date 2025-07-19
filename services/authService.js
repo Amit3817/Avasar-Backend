@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { sendOtp } from '../utils/sendOtp.js';
 import { generateUniqueReferralCode } from '../utils/referral.js';
+import nodemailer from 'nodemailer';
 
 const otpRateLimit = {};
 const OTP_WINDOW = 30 * 1000; // 30 seconds
@@ -16,6 +17,8 @@ function validatePhone(phone) {
 function validateReferralCode(referralCode) {
   return /^[A-Z0-9]{8}$/.test(referralCode);
 }
+
+// Remove sendResetOtpEmail function and use sendOtp for password reset OTP
 
 const authService = {
   async register({ fullName, email, phone, password, referralCode, isAdmin, position }) {
@@ -68,7 +71,12 @@ const authService = {
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
     const newReferralCode = await generateUniqueReferralCode();
     
+    // Generate unique avasarId
+    const userCount = await User.countDocuments();
+    const avasarId = `AV${String(userCount + 1).padStart(6, '0')}`;
+
     const user = await User.create({
+      avasarId,
       profile: { 
         fullName,
         phone,
@@ -220,6 +228,47 @@ const authService = {
     await user.save();
     await sendOtp(user.auth?.email, otp);
     return true;
+  },
+
+  async requestPasswordReset({ email }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
+
+    user.auth.resetOtp = otp;
+    user.auth.resetOtpExpires = expires;
+    await user.save();
+
+    await sendOtp(email, otp);
+    return { success: true, message: 'OTP sent to your email.' };
+  },
+
+  async resetPassword({ email, otp, newPassword }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    if (!user.auth.resetOtp || !user.auth.resetOtpExpires) {
+      throw new Error('No password reset requested.');
+    }
+    if (user.auth.resetOtp !== otp) {
+      throw new Error('Invalid OTP.');
+    }
+    if (user.auth.resetOtpExpires < new Date()) {
+      throw new Error('OTP has expired.');
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters long.');
+    }
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.auth.password = hashedPassword;
+    user.auth.resetOtp = null;
+    user.auth.resetOtpExpires = null;
+    await user.save();
+    return { success: true, message: 'Password has been reset successfully.' };
   },
 };
 

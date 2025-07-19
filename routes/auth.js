@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, verifyOtp, login, resendOtp } from '../controllers/authController.js';
+import { register, verifyOtp, login, resendOtp, requestPasswordReset, resetPassword } from '../controllers/authController.js';
 import { registerValidator, loginValidator, otpValidator, resendOtpValidator } from '../validators/authValidators.js';
 import { validationResult } from 'express-validator';
 import { otpVerificationLimiter, otpResendLimiter } from '../middleware/otpLimiter.js';
@@ -250,5 +250,11 @@ router.post('/check-verification', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// Password reset request endpoint
+router.post('/request-password-reset', requestPasswordReset);
+
+// Password reset endpoint
+router.post('/reset-password', resetPassword);
 
 export default router; 

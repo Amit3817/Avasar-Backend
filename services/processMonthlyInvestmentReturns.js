@@ -14,17 +14,14 @@ async function processMonthlyInvestmentReturns() {
   session.startTransaction();
   
   try {
-    console.log('Starting processMonthlyInvestmentReturns...');
     
     // Find all users with pending investment bonuses
     const users = await User.find({ 'investment.pendingInvestmentBonuses.0': { $exists: true } }).session(session);
-    console.log(`Found ${users.length} users with pending investment bonuses`);
     
     // Get current date info for month calculation
     const now = new Date();
     const currentMonth = now.getMonth(); // 0-based
     const currentYear = now.getFullYear();
-    console.log(`Current month/year: ${currentMonth + 1}/${currentYear}`);
     
     // For testing/debugging: Process all due bonuses regardless of month
     const processAllDueBonuses = process.env.NODE_ENV !== 'production';
@@ -36,7 +33,6 @@ async function processMonthlyInvestmentReturns() {
       const pendingBonuses = user.investment?.pendingInvestmentBonuses || [];
       if (!pendingBonuses.length) continue;
       
-      console.log(`Processing user ${user._id} with ${pendingBonuses.length} pending bonuses`);
       let updated = false;
       
       // Group bonuses by investment
@@ -117,7 +113,6 @@ async function processMonthlyInvestmentReturns() {
           
           // Double-check the 6-month limit
           if (bonus.month <= INVESTMENT_BONUS_MONTHS) {
-            console.log(`Processing bonus #${index} for investment ${investmentKey}: amount=${bonus.amount}, month=${bonus.month}/${INVESTMENT_BONUS_MONTHS}, monthsElapsed=${monthsElapsed}`);
             
             // Award the monthly investment return bonus
             user.income = user.income || {};
@@ -128,7 +123,6 @@ async function processMonthlyInvestmentReturns() {
             updated = true;
             processedCount++;
             
-            console.log(`Awarded bonus #${index} to user ${user._id}: amount=${bonus.amount}, month=${bonus.month}/${INVESTMENT_BONUS_MONTHS}, investmentKey=${investmentKey}`);
           }
         }
       }
@@ -136,13 +130,11 @@ async function processMonthlyInvestmentReturns() {
       // Save user if any bonuses were awarded
       if (updated) {
         await user.save({ session });
-        console.log(`Saved updates for user ${user._id}`);
       }
     }
     
     // Commit transaction and return results
     await session.commitTransaction();
-    console.log(`Processed ${processedCount} investment return bonuses successfully`);
     
     return {
       success: true,

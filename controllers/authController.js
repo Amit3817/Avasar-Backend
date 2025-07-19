@@ -64,4 +64,22 @@ export const resendOtp = async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: 'Could not resend OTP. Please try again later.' });
   }
+};
+
+export const requestPasswordReset = async (req, res) => {
+  try {
+    const result = await authService.requestPasswordReset(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const result = await authService.resetPassword(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }; 

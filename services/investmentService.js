@@ -35,8 +35,6 @@ class InvestmentService {
           investment.withdrawalRestriction = 0;
         }
         
-        console.log(`Investment ${investment._id}: amount=${investment.amount}, isLocked=${isLocked}, totalAvailableAmount=${totalAvailableAmount}`);
-
         await investment.save();
       }
 
@@ -55,15 +53,6 @@ class InvestmentService {
       const totalWalletBalance = user.income.walletBalance;
       // Available for withdrawal is wallet balance PLUS available investment amount
       const availableForWithdrawal = totalWalletBalance + totalAvailableAmount;
-      
-      console.log('Investment status calculation:', {
-        userId,
-        totalWalletBalance,
-        userWalletBalance: user.income?.walletBalance,
-        totalLockedAmount,
-        totalAvailableAmount,
-        availableForWithdrawal
-      });
       
       // Update only the necessary fields in the user model
       await User.findByIdAndUpdate(userId, {
@@ -129,15 +118,6 @@ class InvestmentService {
       const recentApprovedAmount = recentApprovedWithdrawals.reduce((sum, w) => sum + w.amount, 0);
       const actuallyAvailable = status.availableForWithdrawal - pendingAmount - recentApprovedAmount;
       
-      console.log('Withdrawal check:', {
-        userId,
-        requestedAmount: amount,
-        availableForWithdrawal: status.availableForWithdrawal,
-        pendingAmount,
-        recentApprovedAmount,
-        actuallyAvailable
-      });
-      
       if (amount > actuallyAvailable) {
         return {
           canWithdraw: false,
@@ -170,14 +150,6 @@ class InvestmentService {
       const status = await this.calculateInvestmentStatus(userId);
       const user = await User.findById(userId);
       
-      console.log('Investment summary for user:', {
-        userId,
-        statusAvailableForWithdrawal: status.availableForWithdrawal,
-        userInvestmentAvailableForWithdrawal: user.investment?.availableForWithdrawal,
-        walletBalance: user.income?.walletBalance,
-        totalAvailableAmount: status.availableAmount
-      });
-
       return {
         totalInvestment: status.totalInvestment,
         lockedAmount: status.lockedAmount,

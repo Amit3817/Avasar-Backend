@@ -47,7 +47,6 @@ export const registerValidator = [
   ...phoneValidation,
   ...passwordValidation,
   body('referralCode')
-    .optional()
     .isLength({ min: 8, max: 8 })
     .withMessage('Referral code must be exactly 8 characters')
     .matches(/^[A-Z0-9]+$/)

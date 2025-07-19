@@ -9,6 +9,7 @@ const userService = {
     // Use more specific field selection to reduce data transfer
     const user = await User.findById(userId)
       .select({
+        'avasarId': 1,
         'profile': 1,
         'auth.email': 1,
         'auth.isAdmin': 1,
@@ -30,7 +31,7 @@ const userService = {
         'system.awardedRewards': 1,
         'createdAt': 1
       })
-      .populate('referral.referredBy', 'profile.fullName auth.email')
+      .populate('referral.referredBy', 'avasarId profile.fullName auth.email')
       .lean();
       
     if (!user) throw new Error('User not found');
@@ -51,10 +52,6 @@ const userService = {
       
       const rightCount = Array.isArray(currentUser.referral?.rightChildren) ? 
         currentUser.referral.rightChildren.length : 0;
-      
-      console.log(`Team counts from arrays: left=${leftCount}, right=${rightCount}`);
-      
-      console.log(`User ${userId} team counts by position: left=${leftCount}, right=${rightCount}`);
       
       // Calculate indirect referrals
       const indirectResult = await referralService.getIndirectReferrals(userId, 10);
@@ -86,13 +83,6 @@ const userService = {
       user.referral.teamSize = directCount + indirectCount; // Total team size is direct + indirect
       user.referral.indirectReferrals = indirectCount;
       
-      // Log all counts for debugging
-      console.log('User counts:', {
-        directReferrals: directCount,
-        indirectReferrals: indirectCount,
-        leftTeam: leftCount,
-        rightTeam: rightCount
-      });
     } catch (error) {
       console.error('Error calculating referral counts:', error);
     }
@@ -136,6 +126,7 @@ async function getUserProfile(userId) {
   // Use a more specific projection to only fetch needed fields
   const user = await User.findById(userId)
     .select({
+      'avasarId': 1,
       'profile.fullName': 1,
       'auth.email': 1,
       'auth.isAdmin': 1,
@@ -157,7 +148,7 @@ async function getUserProfile(userId) {
       'investment.availableForWithdrawal': 1,
       'createdAt': 1
     })
-    .populate('referral.referredBy', 'profile.fullName auth.email')
+    .populate('referral.referredBy', 'avasarId profile.fullName auth.email')
     .lean();
     
   if (!user) throw new Error('User not found');
@@ -178,10 +169,6 @@ async function getUserProfile(userId) {
     
     const rightCount = Array.isArray(currentUser.referral?.rightChildren) ? 
       currentUser.referral.rightChildren.length : 0;
-    
-    console.log(`Team counts from arrays: left=${leftCount}, right=${rightCount}`);
-    
-    console.log(`User ${userId} team counts by position: left=${leftCount}, right=${rightCount}`);
     
     // Calculate indirect referrals
     const indirectResult = await referralService.getIndirectReferrals(userId, 10);
@@ -213,13 +200,6 @@ async function getUserProfile(userId) {
     user.referral.teamSize = directCount + indirectCount; // Total team size is direct + indirect
     user.referral.indirectReferrals = indirectCount;
     
-    // Log all counts for debugging
-    console.log('User counts:', {
-      directReferrals: directCount,
-      indirectReferrals: indirectCount,
-      leftTeam: leftCount,
-      rightTeam: rightCount
-    });
   } catch (error) {
     console.error('Error calculating referral counts:', error);
   }

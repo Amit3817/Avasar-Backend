@@ -398,14 +398,12 @@ const referralService = {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-      console.log(`Processing investment bonuses for investor ${investorId}, amount: ${investmentAmount}`);
       
       const oneTimePercents = INVESTMENT_ONE_TIME_PERCENTS;
       const monthlyPercents = INVESTMENT_MONTHLY_PERCENTS;
       const directReqs = DIRECT_REQS;
       const monthlyReturn = investmentAmount * MONTHLY_ROI_PERCENT;
       
-      console.log(`Monthly return: ${monthlyReturn}, bonus months: ${INVESTMENT_BONUS_MONTHS}`);
       
       const currentUser = await User.findById(investorId).session(session);
       if (!currentUser) {
@@ -415,7 +413,6 @@ const referralService = {
       }
       
       const uplineChain = await this.getUplineChain(investorId, session);
-      console.log(`Found ${uplineChain.length} upline users`);
       
       const uplineIds = uplineChain.map(user => user._id);
       const directCounts = await User.aggregate([
@@ -434,17 +431,14 @@ const referralService = {
         const directCount = directCountMap.get(parent._id.toString()) || 0;
         const requiredDirects = directReqs[level];
         
-        console.log(`Level ${level} upline ${parent._id}: direct count ${directCount}, required ${requiredDirects}`);
         
         if (directCount < requiredDirects) {
-          console.log(`Level ${level} upline ${parent._id}: skipping due to insufficient direct referrals`);
           continue;
         }
         
         // One-time investment referral bonus
         const oneTimeBonus = Math.floor(investmentAmount * oneTimePercents[level]);
         if (oneTimeBonus > 0) {
-          console.log(`Level ${level} upline ${parent._id}: one-time bonus ${oneTimeBonus}`);
           
           oneTimeBonusOps.push({
             updateOne: {
@@ -464,9 +458,6 @@ const referralService = {
         // Monthly investment return referral bonus - for first 6 months only
         const monthlyBonus = Math.floor(monthlyReturn * monthlyPercents[level]);
         if (monthlyBonus > 0) {
-          console.log(`Level ${level} upline ${parent._id}: monthly bonus ${monthlyBonus} for ${INVESTMENT_BONUS_MONTHS} months`);
-          
-          const pending = parent.investment?.pendingInvestmentBonuses || [];
           
           // Schedule bonuses for exactly 6 months
           // These will be processed one at a time as each month elapses
@@ -477,8 +468,9 @@ const referralService = {
           // This ensures bonuses are processed at the correct time each month
           const startDate = new Date(now.getFullYear(), now.getMonth(), 1); // First day of current month
           
+          const newBonuses = [];
           for (let m = 0; m < INVESTMENT_BONUS_MONTHS; m++) {
-            pending.push({
+            newBonuses.push({
               investor: investorId,
               investmentId: investmentId, // Add investment ID to group related bonuses
               amount: monthlyBonus,
@@ -488,10 +480,9 @@ const referralService = {
               type: 'investmentReturn'
             });
           }
-          
           bonusUpdates.push({
             userId: parent._id,
-            pendingBonuses: pending
+            newBonuses
           });
         }
       }
@@ -499,16 +490,16 @@ const referralService = {
       // Execute bulk operations
       if (oneTimeBonusOps.length > 0) {
         await User.bulkWrite(oneTimeBonusOps, { session });
-        console.log(`Processed ${oneTimeBonusOps.length} one-time bonuses`);
       }
       
-      // Update pending bonuses
+      // Append new pending bonuses instead of replacing the array
       for (const update of bonusUpdates) {
-        await User.findByIdAndUpdate(update.userId, {
-          $set: { 'investment.pendingInvestmentBonuses': update.pendingBonuses }
-        }, { session });
+        if (update.newBonuses && update.newBonuses.length > 0) {
+          await User.findByIdAndUpdate(update.userId, {
+            $push: { 'investment.pendingInvestmentBonuses': { $each: update.newBonuses } }
+          }, { session });
+        }
       }
-      console.log(`Scheduled monthly bonuses for ${bonusUpdates.length} users`);
       
       await session.commitTransaction();
       
@@ -527,23 +518,29 @@ const referralService = {
     }
   },
 
-  // Process monthly investment return payouts for upline users
+  /**
+   * Corrected implementation of processMonthlyInvestmentReturns
+   * 
+   * This function processes monthly investment return bonuses for upline users.
+   * It ensures that bonuses are processed in the correct order (month by month)
+   * and only for the first 6 months.
+   * 
+   * To use this function, replace the existing processMonthlyInvestmentReturns
+   * in referralService.js with this implementation.
+   */
   async processMonthlyInvestmentReturns() {
     const session = await mongoose.startSession();
     session.startTransaction();
     
     try {
-      console.log('Starting processMonthlyInvestmentReturns...');
       
       // Find all users with pending investment bonuses
       const users = await User.find({ 'investment.pendingInvestmentBonuses.0': { $exists: true } }).session(session);
-      console.log(`Found ${users.length} users with pending investment bonuses`);
       
       // Get current date info for month calculation
       const now = new Date();
       const currentMonth = now.getMonth(); // 0-based
       const currentYear = now.getFullYear();
-      console.log(`Current month/year: ${currentMonth + 1}/${currentYear}`);
       
       // For testing/debugging: Process all due bonuses regardless of month
       const processAllDueBonuses = process.env.NODE_ENV !== 'production';
@@ -555,7 +552,6 @@ const referralService = {
         const pendingBonuses = user.investment?.pendingInvestmentBonuses || [];
         if (!pendingBonuses.length) continue;
         
-        console.log(`Processing user ${user._id} with ${pendingBonuses.length} pending bonuses`);
         let updated = false;
         
         // Group bonuses by investment
@@ -636,7 +632,6 @@ const referralService = {
             
             // Double-check the 6-month limit
             if (bonus.month <= INVESTMENT_BONUS_MONTHS) {
-              console.log(`Processing bonus #${index} for investment ${investmentKey}: amount=${bonus.amount}, month=${bonus.month}/${INVESTMENT_BONUS_MONTHS}, monthsElapsed=${monthsElapsed}`);
               
               // Award the monthly investment return bonus
               user.income = user.income || {};
@@ -647,19 +642,24 @@ const referralService = {
               updated = true;
               processedCount++;
               
-              console.log(`Awarded bonus #${index} to user ${user._id}: amount=${bonus.amount}, month=${bonus.month}/${INVESTMENT_BONUS_MONTHS}, investmentKey=${investmentKey}`);
             }
           }
         }
         
+        // Save user if any bonuses were awarded
         if (updated) {
           await user.save({ session });
-          console.log(`Saved updates for user ${user._id}`);
+          // Efficiently remove all awarded bonuses from the array
+          await User.updateOne(
+            { _id: user._id },
+            { $pull: { 'investment.pendingInvestmentBonuses': { awarded: true } } },
+            { session }
+          );
         }
       }
       
+      // Commit transaction and return results
       await session.commitTransaction();
-      console.log(`Processed ${processedCount} investment return bonuses successfully`);
       
       return {
         success: true,

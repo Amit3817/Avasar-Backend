@@ -18,12 +18,22 @@ const authSchema = new mongoose.Schema({
   otpExpires: Date,
   otpAttempts: { type: Number, default: 0 },
   otpLockedUntil: { type: Date, default: null },
-  isAdmin: { type: Boolean, default: false }
+  isAdmin: { type: Boolean, default: false },
+  // Password reset fields
+  resetOtp: { type: String, default: null },
+  resetOtpExpires: { type: Date, default: null }
 }, { _id: false });
 
 // Referral subdocument
 const referralSchema = new mongoose.Schema({
-  referralCode: { type: String, unique: true },
+  referralCode: {
+    type: String,
+    unique: true,
+    required: true,
+    minlength: 8,
+    maxlength: 8,
+    match: /^[A-Z0-9]{8}$/
+  },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   leftChildren: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   rightChildren: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -68,6 +78,7 @@ const systemSchema = new mongoose.Schema({
 
 const userSchema = new mongoose.Schema({
   // Core fields
+  avasarId: { type: String, unique: true, required: true },
   profile: { type: profileSchema, default: () => ({}) },
   auth: { type: authSchema, default: () => ({}) },
   referral: { type: referralSchema, default: () => ({}) },
