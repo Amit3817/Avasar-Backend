@@ -1,32 +1,37 @@
 import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
 import investmentService from './investmentService.js';
+import logger from '../config/logger.js';
 
 const withdrawalService = {
   async submitWithdrawal({ userId, amount, remarks, bankAccount, upiId }) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) throw new Error('User not found.');
     
-    const user = await User.findById(userId);
-    if (!user) throw new Error('User not found.');
+      // Check if the user can withdraw the requested amount
+      const withdrawalCheck = await investmentService.canWithdrawAmount(userId, amount);
     
-    // Check if the user can withdraw the requested amount
-    const withdrawalCheck = await investmentService.canWithdrawAmount(userId, amount);
+      if (!withdrawalCheck.canWithdraw) {
+        throw new Error(withdrawalCheck.reason);
+      }
     
-    if (!withdrawalCheck.canWithdraw) {
-      throw new Error(withdrawalCheck.reason);
+      // Create the withdrawal request with explicit status
+      const withdrawal = await Withdrawal.create({ 
+        user: userId, 
+        amount, 
+        remarks, 
+        bankAccount, 
+        upiId,
+        status: 'pending',
+        createdAt: new Date()
+      });
+      logger.info(`Withdrawal request created for user ${userId}, amount: ₹${amount}`);
+      return withdrawal;
+    } catch (error) {
+      logger.error('Failed to submit withdrawal:', error);
+      throw error;
     }
-    
-    // Create the withdrawal request with explicit status
-    const withdrawal = await Withdrawal.create({ 
-      user: userId, 
-      amount, 
-      remarks, 
-      bankAccount, 
-      upiId,
-      status: 'pending',
-      createdAt: new Date()
-    });
-    
-    return withdrawal;
   },
 
   async getWithdrawalsByUser(userId) {
@@ -77,42 +82,52 @@ const withdrawalService = {
   },
 
   async approveWithdrawal(withdrawalId, adminId) {
-    const withdrawal = await Withdrawal.findById(withdrawalId);
-    if (!withdrawal) throw new Error('Withdrawal request not found.');
-    if (withdrawal.status === 'approved') return withdrawal; // Prevent double approval
-    withdrawal.status = 'approved';
-    withdrawal.verifiedBy = adminId;
-    withdrawal.verifiedAt = new Date();
-    await withdrawal.save();
+    try {
+      const withdrawal = await Withdrawal.findById(withdrawalId);
+      if (!withdrawal) throw new Error('Withdrawal request not found.');
+      if (withdrawal.status === 'approved') return withdrawal; // Prevent double approval
+      withdrawal.status = 'approved';
+      withdrawal.verifiedBy = adminId;
+      withdrawal.verifiedAt = new Date();
+      await withdrawal.save();
 
-    // Subtract amount from user's walletBalance
-    const user = await User.findById(withdrawal.user);
-    if (user) {
-      user.income = user.income || {};
-      user.income.walletBalance = Math.max(0, (user.income.walletBalance || 0) - (withdrawal.amount || 0));
-      await user.save();
+      // Subtract amount from user's walletBalance
+      const user = await User.findById(withdrawal.user);
+      if (user) {
+        user.income = user.income || {};
+        user.income.walletBalance = Math.max(0, (user.income.walletBalance || 0) - (withdrawal.amount || 0));
+        await user.save();
+      }
+      logger.info(`Withdrawal request ${withdrawalId} approved by admin ${adminId}`);
+      return withdrawal;
+    } catch (error) {
+      logger.error('Failed to approve withdrawal:', error);
+      throw error;
     }
-
-    return withdrawal;
   },
 
   async rejectWithdrawal(withdrawalId, remarks) {
-    const withdrawal = await Withdrawal.findById(withdrawalId);
-    if (!withdrawal) throw new Error('Withdrawal request not found.');
-    withdrawal.status = 'rejected';
-    withdrawal.rejectedAt = new Date();
-    withdrawal.remarks = remarks;
-    await withdrawal.save();
+    try {
+      const withdrawal = await Withdrawal.findById(withdrawalId);
+      if (!withdrawal) throw new Error('Withdrawal request not found.');
+      withdrawal.status = 'rejected';
+      withdrawal.rejectedAt = new Date();
+      withdrawal.remarks = remarks;
+      await withdrawal.save();
 
-    // Refund the amount to the user's wallet balance
-    const user = await User.findById(withdrawal.user);
-    if (user) {
-      user.income = user.income || {};
-      user.income.walletBalance = (user.income.walletBalance || 0) + (withdrawal.amount || 0);
-      await user.save();
+      // Refund the amount to the user's wallet balance
+      const user = await User.findById(withdrawal.user);
+      if (user) {
+        user.income = user.income || {};
+        user.income.walletBalance = (user.income.walletBalance || 0) + (withdrawal.amount || 0);
+        await user.save();
+      }
+      logger.info(`Withdrawal request ${withdrawalId} rejected. Reason: ${remarks}`);
+      return withdrawal;
+    } catch (error) {
+      logger.error('Failed to reject withdrawal:', error);
+      throw error;
     }
-
-    return withdrawal;
   },
 };
 

@@ -1,6 +1,7 @@
 import Withdrawal from '../models/Withdrawal.js';
 import User from '../models/User.js';
 import investmentService from '../services/investmentService.js';
+import logger from '../config/logger.js';
 
 // USER: Request withdrawal
 export const requestWithdrawal = async (req, res) => {
@@ -52,7 +53,9 @@ export const requestWithdrawal = async (req, res) => {
     });
     
     res.json({ success: true, data: { withdrawal }, message: 'Withdrawal request submitted successfully!' });
+    logger.info(`Withdrawal requested by user: ${req.user?._id}`);
   } catch (err) {
+    logger.error('Withdrawal request error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -114,6 +117,7 @@ export const approveWithdrawal = async (req, res) => {
     withdrawal.verifiedAt = new Date();
     await withdrawal.save();
     res.json({ success: true, message: 'Withdrawal request approved successfully.' });
+    logger.info(`Withdrawal request approved by admin: ${req.user?._id}`);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -139,6 +143,7 @@ export const rejectWithdrawal = async (req, res) => {
     }
 
     res.json({ success: true, message: 'Withdrawal request rejected and amount refunded.' });
+    logger.info(`Withdrawal request rejected by admin: ${req.user?._id}`);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

@@ -152,4 +152,8 @@ router.put('/withdrawal/:withdrawalId/approve', requireAuth, requireAdmin, withd
 // ADMIN: Reject withdrawal request
 router.put('/withdrawal/:withdrawalId/reject', requireAuth, requireAdmin, withdrawalIdParamValidator, handleValidation, rejectWithdrawal);
 
+router.get('/user/:id', requireAuth, requireAdmin, async (req, res) => {
+  await import('../controllers/adminController.js').then(ctrl => ctrl.getUserById(req, res));
+});
+
 export default router; 

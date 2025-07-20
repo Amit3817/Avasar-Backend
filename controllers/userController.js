@@ -5,6 +5,7 @@ import Withdrawal from '../models/Withdrawal.js';
 import withdrawalService from '../services/withdrawalService.js';
 import referralService from '../services/referralService.js';
 import { sendSuccess, sendError } from '../utils/responseHelpers.js';
+import logger from '../config/logger.js';
 
 export const getProfile = async (req, res) => {
   try {

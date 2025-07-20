@@ -30,7 +30,7 @@ if (process.env.NODE_ENV === 'production') {
   try {
     validateEnvironment();
   } catch (error) {
-    console.error('Environment validation failed:', error.message);
+    logger.error('Environment validation failed:', error.message);
     process.exit(1);
   }
 }
@@ -98,11 +98,14 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/avasar-dev';
   mongoose.connect(mongoUri, productionConfig.database.options)
-    .then(() => console.log('MongoDB connected'))
+    .then(() => {
+      logger.info('MongoDB connected');
+      console.log('MongoDB connected');
+    })
     .catch(err => {
-      console.error('MongoDB connection error:', err);
+      logger.error('MongoDB connection error:', err);
       if (process.env.NODE_ENV !== 'production') {
-        console.log('Continuing without MongoDB for development...');
+        logger.info('Continuing without MongoDB for development...');
       }
     });
 }
@@ -117,24 +120,27 @@ app.use('/api/investment', investmentRoutes);
 
 // Error-handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err.stack || err);
+  logger.error('Error:', err.stack || err);
   sendError(res, 'Internal server error', 500);
 });
 
 const PORT = process.env.PORT || 5000;
 // Only start server if not in test mode
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  app.listen(PORT, () => {
+    logger.info(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
+  });
 }
 
 // Add this at the end of the file
 process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err);
+  logger.error('UNCAUGHT EXCEPTION:', err);
   process.exit(1); // Optional: exit process
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('UNHANDLED REJECTION:', reason);
+  logger.error('UNHANDLED REJECTION:', reason);
 });
 
 // Cron job: reset matchingPairsToday for all users at midnight
@@ -142,7 +148,7 @@ cron.schedule('0 0 * * *', async () => {
   try {
     await User.updateMany({}, { $set: { 'system.matchingPairsToday': {} } });
   } catch (err) {
-    console.error('Error resetting matchingPairsToday:', err);
+    logger.error('Error resetting matchingPairsToday:', err);
   }
 });
 
@@ -157,10 +163,10 @@ cron.schedule('0 1 1 * *', async () => {
       const referralService = (await import('./services/referralService.js')).default;
       const result = await referralService.processMonthlyInvestmentReturns();
     } catch (refErr) {
-      console.error('Error processing monthly investment return referrals:', refErr);
+      logger.error('Error processing monthly investment return referrals:', refErr);
     }
   } catch (err) {
-    console.error('Error processing monthly investment payouts:', err);
+    logger.error('Error processing monthly investment payouts:', err);
   }
 });
 

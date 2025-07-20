@@ -178,6 +178,14 @@ const adminService = {
     };
   },
 
+  async getUserById(userId) {
+    const user = await User.findById(userId)
+      .select('avasarId profile auth.email auth.isAdmin auth.isVerified referral.referredBy referral.referralCode referral.leftChildren referral.rightChildren referral.directReferrals referral.teamSize referral.indirectReferrals income.walletBalance income.referralIncome income.matchingIncome income.rewardIncome income.investmentIncome income.investmentReferralIncome income.investmentReferralPrincipalIncome income.investmentReferralReturnIncome income.referralInvestmentPrincipal investment.totalInvestment investment.availableForWithdrawal investment.lockedInvestmentAmount system.pairs system.totalPairs system.awardedRewards createdAt')
+      .populate('referral.referredBy', 'avasarId profile.fullName auth.email')
+      .lean();
+    return user;
+  },
+
   async getDashboardStats() {
     // Get total users (excluding admins)
     const totalUsers = await User.countDocuments({ isAdmin: { $ne: true } });

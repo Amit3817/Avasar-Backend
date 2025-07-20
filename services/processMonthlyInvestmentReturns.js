@@ -9,6 +9,8 @@
  * in referralService.js with this implementation.
  */
 
+import logger from '../config/logger.js';
+
 async function processMonthlyInvestmentReturns() {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -142,7 +144,7 @@ async function processMonthlyInvestmentReturns() {
       processedCount
     };
   } catch (error) {
-    console.error('Error in processMonthlyInvestmentReturns:', error);
+    logger.error('Error in processMonthlyInvestmentReturns:', error);
     await session.abortTransaction();
     throw error;
   } finally {

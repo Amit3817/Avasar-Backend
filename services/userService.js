@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Withdrawal from '../models/Withdrawal.js';
 import investmentService from './investmentService.js';
 import referralService from './referralService.js';
+import logger from '../config/logger.js';
 
 const userService = {
   async getProfile(userId) {
@@ -84,7 +85,7 @@ const userService = {
       user.referral.indirectReferrals = indirectCount;
       
     } catch (error) {
-      console.error('Error calculating referral counts:', error);
+      logger.error('Error calculating referral counts:', error);
     }
     
     // Ensure isAdmin is properly accessible
@@ -201,7 +202,7 @@ async function getUserProfile(userId) {
     user.referral.indirectReferrals = indirectCount;
     
   } catch (error) {
-    console.error('Error calculating referral counts:', error);
+    logger.error('Error calculating referral counts:', error);
   }
   
   // Ensure isAdmin is properly accessible

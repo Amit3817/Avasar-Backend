@@ -48,16 +48,7 @@ const authService = {
       }
       
       // Check if the referrer has available positions
-      const leftCount = refUser.referral?.leftChildren?.length || 0;
-      const rightCount = refUser.referral?.rightChildren?.length || 0;
-      
-      if (position === 'left' && leftCount >= 1) {
-        throw new Error('Left position is already occupied. Please choose right position or use a different referral code.');
-      }
-      
-      if (position === 'right' && rightCount >= 1) {
-        throw new Error('Right position is already occupied. Please choose left position or use a different referral code.');
-      }
+      // No restriction: allow multiple left or right children
     }
     
     // OTP rate limit (by phone and email)

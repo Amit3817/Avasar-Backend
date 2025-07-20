@@ -26,8 +26,10 @@ export const uploadSlip = async (req, res) => {
       transactionId: req.body.transactionId,
       isAdmin: req.user.auth?.isAdmin || false,
     });
+    logger.info(`Payment slip uploaded: ${req.user?._id}`);
     sendSuccess(res, { slip }, 'Payment slip uploaded successfully. Awaiting admin approval.');
   } catch (err) {
+    logger.error('Slip upload error:', err);
     sendError(res, err.message || 'Payment slip upload failed', 400);
   }
 };

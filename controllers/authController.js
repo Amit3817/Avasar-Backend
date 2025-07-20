@@ -6,6 +6,7 @@ import { generateUniqueReferralCode } from '../utils/referral.js';
 import authService from '../services/authService.js';
 import { trackOtpAttempt, resetOtpAttempts } from '../middleware/otpLimiter.js';
 import { sendSuccess, sendError } from '../utils/responseHelpers.js';
+import logger from '../config/logger.js';
 
 // Improved OTP rate limit (by phone and email)
 const otpRateLimit = {};
@@ -21,8 +22,10 @@ function validatePhone(phone) {
 export const register = async (req, res) => {
   try {
     const user = await authService.register(req.body);
+    logger.info(`User registered: ${user.auth?.email}`);
     sendSuccess(res, user, 'Registration successful! An OTP has been sent to your email.');
   } catch (err) {
+    logger.error('Registration error:', err);
     if (err.code === 11000) {
       if (err.keyPattern && (err.keyPattern['auth.email'] || err.keyPattern.email)) {
         sendError(res, 'This email is already registered. Please log in or use a different email address.', 400);
@@ -52,8 +55,10 @@ export const verifyOtp = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const result = await authService.login(req.body);
+    logger.info(`User login: ${result.user?.email}`);
     sendSuccess(res, result, 'Login successful.');
   } catch (err) {
+    logger.error('Login error:', err);
     sendError(res, err.message, 400);
   }
 };

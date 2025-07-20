@@ -2,12 +2,14 @@ import investmentService from '../services/investmentService.js';
 import PaymentSlip from '../models/PaymentSlip.js';
 import User from '../models/User.js';
 import Investment from '../models/Investment.js';
+import logger from '../config/logger.js';
 
 export const getUserInvestments = async (req, res) => {
   try {
     const result = await investmentService.getUserInvestmentsWithTotalIncome(req.user._id);
     res.json({ success: true, data: result, message: 'Investments fetched successfully.', error: null });
   } catch (err) {
+    logger.error('Failed to fetch investments:', err);
     res.status(500).json({ success: false, data: null, message: 'Failed to fetch investments.', error: err.message });
   }
 };
@@ -38,6 +40,7 @@ export const getInvestmentDetails = async (req, res) => {
     
     res.json({ success: true, data: { investment: details }, message: 'Investment details fetched successfully.', error: null });
   } catch (err) {
+    logger.error('Failed to fetch investment details:', err);
     res.status(500).json({ success: false, data: null, message: 'Failed to fetch investment details.', error: err.message });
   }
 };
@@ -46,8 +49,10 @@ export const createInvestment = async (req, res) => {
   try {
     const { amount, verificationDate } = req.body;
     const investment = await investmentService.createInvestment(req.user._id, amount, verificationDate);
+    logger.info(`Investment created for user: ${req.user?._id}`);
     res.json({ success: true, data: { investment }, message: 'Investment created successfully.', error: null });
   } catch (err) {
+    logger.error('Investment creation error:', err);
     res.status(400).json({ success: false, data: null, message: 'Failed to create investment.', error: err.message });
   }
 };
@@ -55,8 +60,10 @@ export const createInvestment = async (req, res) => {
 export const processMonthlyPayouts = async (req, res) => {
   try {
     const processed = await investmentService.processMonthlyPayouts();
+    logger.info(`Monthly payouts processed for ${processed} investments.`);
     res.json({ success: true, data: { processed }, message: `Monthly payouts processed for ${processed} investments.`, error: null });
   } catch (err) {
+    logger.error('Failed to process monthly payouts:', err);
     res.status(500).json({ success: false, data: null, message: 'Failed to process monthly payouts.', error: err.message });
   }
 };
@@ -67,6 +74,7 @@ export const approveInvestment = async (req, res) => {
     const slip = await investmentService.approveInvestment(slipId);
     res.json({ success: true, message: 'Investment approved and bonuses triggered.', slip });
   } catch (err) {
+    logger.error('Failed to approve investment:', err);
     res.status(500).json({ success: false, message: 'Failed to approve investment.', error: err.message });
   }
 }; 

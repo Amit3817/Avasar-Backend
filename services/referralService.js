@@ -12,6 +12,7 @@ import {
   MONTHLY_ROI_PERCENT,
   INVESTMENT_BONUS_MONTHS
 } from '../config/constants.js';
+import logger from '../config/logger.js';
 
 const referralService = {
   // Get direct referrals for a user
@@ -25,7 +26,7 @@ const referralService = {
       return await User.find({ 'referral.referredBy': new mongoose.Types.ObjectId(userId) })
         .select('profile.fullName auth.email profile.phone createdAt profile.position');
     } catch (error) {
-      console.error('Error in getDirectReferrals:', error);
+      logger.error('Error in getDirectReferrals:', error);
       return [];
     }
   },
@@ -70,7 +71,7 @@ const referralService = {
       // For regular count, return the number
       return allIndirectUsers.length > 0 ? allIndirectUsers : total;
     } catch (error) {
-      console.error('Error in getIndirectReferrals:', error);
+      logger.error('Error in getIndirectReferrals:', error);
       return [];
     }
   },
@@ -102,7 +103,7 @@ const referralService = {
       
       return allUsers;
     } catch (error) {
-      console.error('Error in getIndirectReferralsWithDetails:', error);
+      logger.error('Error in getIndirectReferralsWithDetails:', error);
       return [];
     }
   },
@@ -130,7 +131,7 @@ const referralService = {
         _id: { $in: user.referral.leftChildren } 
       }).select('profile.fullName auth.email profile.phone createdAt profile.position').lean();
     } catch (error) {
-      console.error('Error in getDirectLeft:', error);
+      logger.error('Error in getDirectLeft:', error);
       return [];
     }
   },
@@ -158,7 +159,7 @@ const referralService = {
         _id: { $in: user.referral.rightChildren } 
       }).select('profile.fullName auth.email profile.phone createdAt profile.position').lean();
     } catch (error) {
-      console.error('Error in getDirectRight:', error);
+      logger.error('Error in getDirectRight:', error);
       return [];
     }
   },
@@ -200,7 +201,6 @@ const referralService = {
       }
       const regAmount = Number(regSlip.amount);
       const pairBonus = Math.floor(regAmount * 0.10);
-      const today = new Date().toISOString().slice(0, 10);
       // Get upline chain and new user in parallel
       const [uplineChain, newUser] = await Promise.all([
         this.getUplineChain(newUserId, useSession),
@@ -249,13 +249,19 @@ const referralService = {
               }
             }
           });
+          logger.info(`Referral income awarded: User ${parent._id} received ₹${referralIncome} at level ${level}`);
         }
       }
       
       // Process matching income for all upline users
       if (uplineChain.length > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        let directParentFormedPair = false;
         for (let uplineLevel = 0; uplineLevel < uplineChain.length; uplineLevel++) {
-          const uplineParent = uplineChain[uplineLevel];
+          let uplineParent = uplineChain[uplineLevel];
+          if (!uplineParent) continue;
+          // Always fetch the latest user document from the database
+          uplineParent = await User.findById(uplineParent._id).lean();
           if (!uplineParent) continue;
           
           const uplineRequiredDirects = DIRECT_REQS[uplineLevel + 1] || 0;
@@ -263,33 +269,63 @@ const referralService = {
           
           if (uplineDirectCount < uplineRequiredDirects) continue;
           
-          // Check if this user has both left and right children
-          const leftCount = uplineParent.referral?.leftChildren?.length || 0;
-          const rightCount = uplineParent.referral?.rightChildren?.length || 0;
-          
-          // Only award matching income if there are pairs
-          if (leftCount > 0 && rightCount > 0) {
-            // Calculate pairs
-            const pairs = Math.min(leftCount, rightCount);
-            
-            // Check daily limit for matching income
+          let pairsToAward = 0;
+          if (uplineLevel === 0) {
+            // For direct parent, check left/right children for new pair
+            const leftCount = uplineParent.referral?.leftChildren?.length || 0;
+            const rightCount = uplineParent.referral?.rightChildren?.length || 0;
+            const prevPairs = uplineParent.system?.pairs || 0;
+            const newPairs = Math.min(leftCount, rightCount);
+            pairsToAward = newPairs > prevPairs ? 1 : 0;
+            directParentFormedPair = pairsToAward === 1;
+            logger.info(`Matching bonus calc (direct parent): user=${uplineParent._id}, leftCount=${leftCount}, rightCount=${rightCount}, prevPairs=${prevPairs}, newPairs=${newPairs}, pairsToAward=${pairsToAward}, currentPairsToday=${uplineParent.system?.matchingPairsToday?.[today] || 0}`);
+            // Always set system.pairs for direct parent
+            if (pairsToAward > 0) {
+              const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
+              const pairsToAwardToday = Math.min(pairsToAward, MAX_PAIRS_PER_DAY - currentPairsToday);
+              if (pairsToAwardToday > 0) {
+                matchingOps.push({
+                  updateOne: {
+                    filter: { _id: uplineParent._id },
+                    update: {
+                      $inc: {
+                        'income.matchingIncome': pairBonus * pairsToAwardToday,
+                        'system.totalPairs': pairsToAwardToday,
+                        'income.walletBalance': pairBonus * pairsToAwardToday,
+                        [`system.matchingPairsToday.${today}`]: pairsToAwardToday
+                      },
+                      $set: {
+                        'system.pairs': newPairs
+                      }
+                    }
+                  }
+                });
+                logger.info(`Matching income awarded: User ${uplineParent._id} received ₹${pairBonus * pairsToAwardToday} for ${pairsToAwardToday} new pairs (now totalPairs=${(uplineParent.system?.totalPairs || 0) + pairsToAwardToday})`);
+                rewardChecks.add(uplineParent._id.toString());
+              }
+            }
+          } else {
+            // For higher-level uplines, only award if direct parent formed a new pair
+            if (!directParentFormedPair) break;
+            pairsToAward = 1;
+            logger.info(`Matching bonus calc (upline): user=${uplineParent._id}, pairsToAward=${pairsToAward}, currentPairsToday=${uplineParent.system?.matchingPairsToday?.[today] || 0}`);
             const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
-            if (currentPairsToday < MAX_PAIRS_PER_DAY) {
+            const pairsToAwardToday = Math.min(pairsToAward, MAX_PAIRS_PER_DAY - currentPairsToday);
+            if (pairsToAwardToday > 0) {
               matchingOps.push({
                 updateOne: {
                   filter: { _id: uplineParent._id },
                   update: {
                     $inc: {
-                      'income.matchingIncome': pairBonus,
-                      'system.totalPairs': 1,
-                      'income.walletBalance': pairBonus,
-                      [`system.matchingPairsToday.${today}`]: 1
+                      'income.matchingIncome': pairBonus * pairsToAwardToday,
+                      'system.totalPairs': pairsToAwardToday,
+                      'income.walletBalance': pairBonus * pairsToAwardToday,
+                      [`system.matchingPairsToday.${today}`]: pairsToAwardToday
                     }
                   }
                 }
               });
-              
-              // Track for reward checking
+              logger.info(`Matching income awarded: User ${uplineParent._id} received ₹${pairBonus * pairsToAwardToday} for ${pairsToAwardToday} new pairs (now totalPairs=${(uplineParent.system?.totalPairs || 0) + pairsToAwardToday})`);
               rewardChecks.add(uplineParent._id.toString());
             }
           }
@@ -388,7 +424,7 @@ const referralService = {
       await this.checkAndAwardRewards(user);
       return { success: true, message: 'Rewards processed successfully' };
     } catch (error) {
-      console.error('Error in processRewardIncome:', error);
+      logger.error('Error in processRewardIncome:', error);
       return { success: false, message: error.message || 'Failed to process rewards' };
     }
   },
@@ -453,6 +489,7 @@ const referralService = {
               }
             }
           });
+          logger.info(`Investment referral bonus awarded: User ${parent._id} received ₹${oneTimeBonus} at level ${level}`);
         }
         
         // Monthly investment return referral bonus - for first 6 months only
@@ -484,6 +521,7 @@ const referralService = {
             userId: parent._id,
             newBonuses
           });
+          logger.info(`Monthly investment return bonus scheduled: User ${parent._id} will receive ₹${monthlyBonus} for 6 months at level ${level}`);
         }
       }
       
@@ -510,7 +548,7 @@ const referralService = {
         monthlySchedules: bonusUpdates.length
       };
     } catch (error) {
-      console.error('Error processing investment bonuses:', error);
+      logger.error('Error processing investment bonuses:', error);
       await session.abortTransaction();
       throw error;
     } finally {
@@ -667,7 +705,7 @@ const referralService = {
         processedCount
       };
     } catch (error) {
-      console.error('Error in processMonthlyInvestmentReturns:', error);
+      logger.error('Error in processMonthlyInvestmentReturns:', error);
       await session.abortTransaction();
       throw error;
     } finally {
@@ -700,7 +738,7 @@ const referralService = {
         return { success: false, message: 'Registration already processed' };
       }
     } catch (error) {
-      console.error('Error in processRegistrationReferralIncome:', error);
+      logger.error('Error in processRegistrationReferralIncome:', error);
       return { success: false, message: error.message || 'Failed to process registration referral income' };
     }
   },
@@ -711,7 +749,7 @@ const referralService = {
       const result = await this.processInvestmentBonuses(userId, investmentAmount);
       return result;
     } catch (error) {
-      console.error('Error in processInvestmentReferralIncome:', error);
+      logger.error('Error in processInvestmentReferralIncome:', error);
       return { success: false, message: error.message || 'Failed to process investment referral income' };
     }
   },
@@ -735,7 +773,7 @@ const referralService = {
         awardedRewards: user.system?.awardedRewards || []
       };
     } catch (error) {
-      console.error('Error in getUserReferralSummary:', error);
+      logger.error('Error in getUserReferralSummary:', error);
       throw new Error(`Failed to get referral summary: ${error.message}`);
     }
   },
@@ -780,7 +818,7 @@ const referralService = {
         rightCount
       };
     } catch (error) {
-      console.error('Error in updateUserTeamStats:', error);
+      logger.error('Error in updateUserTeamStats:', error);
       return { directReferrals: 0, teamSize: 0, leftCount: 0, rightCount: 0 };
     }
   },

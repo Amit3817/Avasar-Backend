@@ -3,6 +3,7 @@ import Investment from '../models/Investment.js';
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
 import referralService from './referralService.js';
+import logger from '../config/logger.js';
 
 class InvestmentService {
   // Calculate investment lock-in status and withdrawal restrictions
@@ -46,7 +47,7 @@ class InvestmentService {
       try {
         await user.save();
       } catch (saveError) {
-        console.error('Error saving user:', saveError);
+        logger.error('Error saving user:', saveError);
       }
       
       // Calculate available wallet balance for withdrawal
@@ -83,6 +84,7 @@ class InvestmentService {
         }))
       };
     } catch (error) {
+      logger.error('Failed to calculate investment status:', error);
       throw new Error(`Failed to calculate investment status: ${error.message}`);
     }
   }
@@ -140,6 +142,7 @@ class InvestmentService {
         reason: null
       };
     } catch (error) {
+      logger.error('Failed to check withdrawal eligibility:', error);
       throw new Error(`Failed to check withdrawal eligibility: ${error.message}`);
     }
   }
@@ -162,6 +165,7 @@ class InvestmentService {
         referralIncome: (user.income?.referralIncome || 0) + (user.income?.matchingIncome || 0) + (user.income?.rewardIncome || 0)
       };
     } catch (error) {
+      logger.error('Failed to get investment summary:', error);
       throw new Error(`Failed to get investment summary: ${error.message}`);
     }
   }
@@ -188,6 +192,7 @@ class InvestmentService {
 
       return investment;
     } catch (error) {
+      logger.error('Failed to create investment:', error);
       throw new Error(`Failed to create investment: ${error.message}`);
     }
   }
@@ -296,17 +301,19 @@ class InvestmentService {
       if (session) {
         await session.commitTransaction();
         session.endSession();
+        logger.info('Monthly investment payouts committed and session ended.');
       }
       
       // We'll process investment return payouts for upline users directly in the cron job
       // This ensures it runs even if there are no investments to process
-      console.log('Investment payouts completed, investment return referrals will be processed separately');
+      logger.info('Investment payouts completed, investment return referrals will be processed separately');
       
       return processed;
     } catch (error) {
       if (session) {
         await session.abortTransaction();
         session.endSession();
+        logger.error('Monthly payout transaction aborted due to error:', error);
       }
       throw new Error(`Failed to process monthly payouts: ${error.message}`);
     }
@@ -395,16 +402,17 @@ class InvestmentService {
       try {
         const bonusResult = await referralService.processInvestmentBonuses(slip.user, investmentAmount);
         if (bonusResult.success) {
-          console.log(`Investment bonuses processed successfully for user ${slip.user}: ${bonusResult.oneTimeUpdates} one-time bonuses, ${bonusResult.monthlySchedules} monthly schedules`);
+          logger.info(`Investment bonuses processed successfully for user ${slip.user}: ${bonusResult.oneTimeUpdates} one-time bonuses, ${bonusResult.monthlySchedules} monthly schedules`);
         } else {
-          console.error(`Failed to process investment bonuses for user ${slip.user}:`, bonusResult.message);
+          logger.error(`Failed to process investment bonuses for user ${slip.user}:`, bonusResult.message);
         }
       } catch (bonusError) {
-        console.error(`Error processing investment bonuses for user ${slip.user}:`, bonusError.message);
+        logger.error(`Error processing investment bonuses for user ${slip.user}:`, bonusError.message);
       }
       
       return slip;
     } catch (error) {
+      logger.error('Failed to approve investment:', error);
       await session.abortTransaction();
       throw error;
     } finally {

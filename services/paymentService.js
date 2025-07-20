@@ -6,24 +6,29 @@ import logger from '../config/logger.js';
 
 const paymentService = {
   async uploadSlip({ userId, file, amount, method, transactionId, isAdmin }) {
-    // ENFORCE: If user does not have an approved slip of amount 3600, only allow uploading a slip with amount 3600
-    const prevApproved = await PaymentSlip.findOne({ user: userId, status: 'approved', amount: 3600 });
-    if (!prevApproved && Number(amount) !== 3600) {
-      throw new Error('Your first payment slip must be for ₹3600.');
+    try {
+      // ENFORCE: If user does not have an approved slip of amount 3600, only allow uploading a slip with amount 3600
+      const prevApproved = await PaymentSlip.findOne({ user: userId, status: 'approved', amount: 3600 });
+      if (!prevApproved && Number(amount) !== 3600) {
+        throw new Error('Your first payment slip must be for ₹3600.');
+      }
+      // Upload to Cloudinary
+      const result = await uploadPaymentSlip(file.buffer, file.originalname);
+      // Save to DB
+      const slip = await PaymentSlip.create({
+        user: userId,
+        file: result.secure_url,
+        transactionId,
+        amount,
+        method,
+        status: isAdmin ? 'approved' : 'pending',
+      });
+      logger.info(`Payment slip uploaded for user ${userId}, amount: ₹${amount}, status: ${isAdmin ? 'approved' : 'pending'}`);
+      return slip;
+    } catch (error) {
+      logger.error('Failed to upload payment slip:', error);
+      throw error;
     }
-    // Upload to Cloudinary
-    const result = await uploadPaymentSlip(file.buffer, file.originalname);
-    // Save to DB
-    const slip = await PaymentSlip.create({
-      user: userId,
-      file: result.secure_url,
-      transactionId,
-      amount,
-      method,
-      status: isAdmin ? 'approved' : 'pending',
-    });
-    
-    return slip;
   },
 
   async getSlip(userId) {
