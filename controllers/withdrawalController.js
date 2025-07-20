@@ -5,10 +5,21 @@ import investmentService from '../services/investmentService.js';
 // USER: Request withdrawal
 export const requestWithdrawal = async (req, res) => {
   try {
-    const { amount, remarks, bankAccount, upiId } = req.body;
+    const { amount, remarks, bankAccount, upiId, withdrawalOtp } = req.body;
     const userId = req.user._id;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    
+    // Require withdrawal OTP verification
+    if (!withdrawalOtp) {
+      return res.status(400).json({ success: false, message: 'Withdrawal OTP is required for security verification.' });
+    }
+    
+    // Verify withdrawal OTP
+
+    if (user.auth.withdrawalOtp !== withdrawalOtp || user.auth.withdrawalOtpExpires < new Date()) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired withdrawal OTP. Please request a new OTP.' });
+    }
     
     // Require bank or UPI details
     const hasBank = bankAccount && bankAccount.accountNumber && bankAccount.ifsc;
@@ -22,6 +33,12 @@ export const requestWithdrawal = async (req, res) => {
     if (!withdrawalCheck.canWithdraw) {
       return res.status(400).json({ success: false, message: withdrawalCheck.reason });
     }
+    
+    // Clear withdrawal OTP after successful verification
+    user.auth.withdrawalOtp = null;
+    user.auth.withdrawalOtpExpires = null;
+    user.auth.withdrawalOtpAttempts = 0;
+    user.auth.withdrawalOtpLockedUntil = null;
     
     user.income.walletBalance -= amount;
     await user.save();
@@ -55,7 +72,9 @@ export const getUserWithdrawals = async (req, res) => {
 // ADMIN: Get all withdrawal requests
 export const getAllWithdrawals = async (req, res) => {
   try {
-    const withdrawals = await Withdrawal.find({})
+    const { userId } = req.query;
+    const filter = userId ? { user: userId } : {};
+    const withdrawals = await Withdrawal.find(filter)
       .populate({
         path: 'user',
         model: 'User',
@@ -68,15 +87,12 @@ export const getAllWithdrawals = async (req, res) => {
       })
       .sort({ createdAt: -1 })
       .lean();
-    
     // Add payment method info to each withdrawal
     const withdrawalsWithPaymentInfo = withdrawals.map(withdrawal => ({
       ...withdrawal,
       paymentMethod: withdrawal.bankAccount?.accountNumber ? 'Bank Transfer' : 
                     withdrawal.upiId ? 'UPI' : 'Not specified'
     }));
-    
-    // Use standardized response structure like other admin endpoints
     res.json({ 
       success: true, 
       message: 'All withdrawal requests fetched successfully!',
@@ -114,7 +130,15 @@ export const rejectWithdrawal = async (req, res) => {
     withdrawal.rejectedAt = new Date();
     withdrawal.remarks = remarks;
     await withdrawal.save();
-    res.json({ success: true, message: 'Withdrawal request rejected successfully.' });
+
+    // Refund the amount to the user's wallet
+    const user = await User.findById(withdrawal.user);
+    if (user) {
+      user.income.walletBalance += withdrawal.amount;
+      await user.save();
+    }
+
+    res.json({ success: true, message: 'Withdrawal request rejected and amount refunded.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

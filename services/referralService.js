@@ -748,35 +748,24 @@ const referralService = {
       if (!mongoose.Types.ObjectId.isValid(userId)) {
         return { directReferrals: 0, teamSize: 0, leftCount: 0, rightCount: 0 };
       }
-      
       // Get the user to check left and right children
       const user = await User.findById(userId).select('referral');
       if (!user) {
         return { directReferrals: 0, teamSize: 0, leftCount: 0, rightCount: 0 };
       }
-      
-      // Calculate direct referrals
-      const directCount = await User.countDocuments({ 
-        'referral.referredBy': new mongoose.Types.ObjectId(userId) 
-      });
-      
       // Calculate left and right counts
       const leftCount = Array.isArray(user.referral?.leftChildren) ? user.referral.leftChildren.length : 0;
       const rightCount = Array.isArray(user.referral?.rightChildren) ? user.referral.rightChildren.length : 0;
-      
+      const directCount = leftCount + rightCount;
       // Calculate indirect referrals (returns number or array)
       const indirectResult = await this.getIndirectReferrals(userId, 10);
-      
-      // Handle both return types (number or array)
       let indirectCount = 0;
       if (Array.isArray(indirectResult)) {
         indirectCount = indirectResult.length;
       } else if (typeof indirectResult === 'number') {
         indirectCount = indirectResult;
       }
-      
       const totalTeamSize = directCount + indirectCount;
-      
       // Update user with calculated stats
       await User.findByIdAndUpdate(userId, {
         $set: {
@@ -784,9 +773,8 @@ const referralService = {
           'referral.teamSize': totalTeamSize
         }
       });
-      
-      return { 
-        directReferrals: directCount, 
+      return {
+        directReferrals: directCount,
         teamSize: totalTeamSize,
         leftCount,
         rightCount

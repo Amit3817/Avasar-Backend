@@ -4,13 +4,14 @@ import User from '../models/User.js';
 import Withdrawal from '../models/Withdrawal.js';
 import withdrawalService from '../services/withdrawalService.js';
 import referralService from '../services/referralService.js';
+import { sendSuccess, sendError } from '../utils/responseHelpers.js';
 
 export const getProfile = async (req, res) => {
   try {
     const user = await userService.getProfile(req.user._id);
-    res.json({ success: true, user, message: 'Profile fetched successfully.', error: null });
+    sendSuccess(res, { user }, 'Profile fetched successfully.');
   } catch (err) {
-    res.status(500).json({ success: false, user: null, message: 'Failed to fetch profile.', error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -23,13 +24,13 @@ export const updateProfileValidators = [
 export const updateProfile = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ success: false, data: null, message: 'Invalid profile update data.', error: errors.array() });
+    return sendError(res, 'Invalid profile update data.', 400, errors.array());
   }
   try {
     const user = await userService.updateProfile(req.user._id, req.body);
-    res.json({ success: true, data: { user }, message: 'Profile updated successfully!', error: null });
+    sendSuccess(res, { user }, 'Profile updated successfully!');
   } catch (err) {
-    res.status(500).json({ success: false, data: null, message: 'Failed to update profile.', error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -48,7 +49,7 @@ export const withdrawValidators = [
 export const requestWithdrawal = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ success: false, data: null, message: 'Invalid withdrawal request.', error: errors.array() });
+    return sendError(res, 'Invalid withdrawal request.', 400, errors.array());
   }
   try {
     const withdrawal = await withdrawalService.submitWithdrawal({
@@ -58,9 +59,9 @@ export const requestWithdrawal = async (req, res) => {
       bankAccount: req.body.bankAccount,
       upiId: req.body.upiId
     });
-    res.json({ success: true, data: { withdrawal }, message: 'Withdrawal request submitted successfully!', error: null });
+    sendSuccess(res, { withdrawal }, 'Withdrawal request submitted successfully!');
   } catch (err) {
-    res.status(500).json({ success: false, data: null, message: 'Failed to submit withdrawal request.', error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -68,28 +69,18 @@ export const getUserWithdrawals = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const result = await withdrawalService.getUserWithdrawals(req.user._id, page, limit);
-    res.json({
-      success: true,
-      data: result,
-      message: 'Withdrawal history fetched successfully!',
-      error: null
-    });
+    sendSuccess(res, result, 'Withdrawal history fetched successfully!');
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      data: null,
-      message: 'Failed to fetch withdrawal history.',
-      error: err.message
-    });
+    sendError(res, err.message, 500);
   }
 };
 
 export const getUserProfile = async (req, res) => {
   try {
     const user = await userService.getUserProfile(req.user._id);
-    res.json({ success: true, user, message: 'Profile fetched successfully.', error: null });
+    sendSuccess(res, { user }, 'Profile fetched successfully.');
   } catch (err) {
-    res.status(500).json({ success: false, user: null, message: 'Failed to fetch profile.', error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -107,9 +98,9 @@ export const getDirectReferrals = async (req, res) => {
     });
     
     // Return the original format for compatibility with frontend
-    res.json(directReferrals);
+    sendSuccess(res, directReferrals, 'Direct referrals fetched successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -119,16 +110,16 @@ export const getIndirectReferrals = async (req, res) => {
     
     // Handle different return types but maintain original response format
     if (typeof indirectResult === 'number') {
-      return res.json([]);
+      sendSuccess(res, [], 'No indirect referrals found.');
     } else if (Array.isArray(indirectResult)) {
       const users = await User.find({ _id: { $in: indirectResult } })
         .select('profile.fullName auth.email profile.phone createdAt profile.position');
-      return res.json(users);
+      sendSuccess(res, users, 'Indirect referrals fetched successfully.');
     } else {
-      return res.json([]);
+      sendSuccess(res, [], 'No indirect referrals found.');
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -136,9 +127,9 @@ export const getDirectLeft = async (req, res) => {
   try {
     const users = await referralService.getDirectLeft(req.user._id);
     // Return the original format for compatibility with frontend
-    res.json(users);
+    sendSuccess(res, users, 'Direct left referrals fetched successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -146,9 +137,9 @@ export const getDirectRight = async (req, res) => {
   try {
     const users = await referralService.getDirectRight(req.user._id);
     // Return the original format for compatibility with frontend
-    res.json(users);
+    sendSuccess(res, users, 'Direct right referrals fetched successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 };
 
@@ -204,8 +195,7 @@ export const updateReferralCounts = async (req, res) => {
       }
     });
     
-    res.json({
-      success: true,
+    sendSuccess(res, {
       counts: {
         directReferrals: directCount,
         indirectReferrals: indirectCount,
@@ -216,8 +206,8 @@ export const updateReferralCounts = async (req, res) => {
         leftReferrals: leftTeamCount,
         rightReferrals: rightTeamCount
       }
-    });
+    }, 'Referral counts updated successfully.');
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendError(res, err.message, 500);
   }
 }; 

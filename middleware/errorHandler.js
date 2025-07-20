@@ -1,10 +1,7 @@
+import { sendError } from '../utils/responseHelpers.js';
+
 const errorHandler = (err, req, res, next) => {
-  res.status(err.status || 500).json({
-    success: false,
-    data: null,
-    message: err.message || 'Internal server error',
-    error: err.stack || err.message || err
-  });
+  sendError(res, err.message || 'Internal server error', err.status || 500, err.stack || err);
 };
 
 export default errorHandler; 

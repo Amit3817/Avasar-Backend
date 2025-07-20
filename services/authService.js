@@ -87,6 +87,7 @@ const authService = {
         password: hashedPassword, 
         otp, 
         otpExpires,
+        otpType: 'registration',
         isAdmin: !!isAdmin
       },
       referral: {
@@ -118,7 +119,7 @@ const authService = {
     if (!user) throw new Error('No account found with this email.');
     const MAX_OTP_ATTEMPTS = 5;
     const OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
-    if (user.otpLockedUntil && user.otpLockedUntil > new Date()) {
+    if (user.auth.otpLockedUntil && user.auth.otpLockedUntil > new Date()) {
       throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
     }
     if (user.auth.otp !== otp || user.auth.otpExpires < new Date()) {
@@ -129,9 +130,16 @@ const authService = {
       await user.save();
       throw new Error('Invalid or expired OTP. Please check your email and try again.');
     }
+    
+    // Verify OTP type is for registration
+    if (user.auth.otpType !== 'registration') {
+      throw new Error('Invalid OTP type. This OTP is not for registration verification.');
+    }
+    
     user.auth.isVerified = true;
     user.auth.otp = null;
     user.auth.otpExpires = null;
+    user.auth.otpType = undefined;
     user.auth.otpAttempts = 0;
     user.auth.otpLockedUntil = null;
     await user.save();
@@ -225,50 +233,205 @@ const authService = {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.auth.otp = otp;
     user.auth.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.auth.otpType = 'registration';
     await user.save();
     await sendOtp(user.auth?.email, otp);
     return true;
+  },
+
+  async resendPasswordResetOtp({ email }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    // Check if user is locked from too many attempts
+    if (user.auth.otpLockedUntil && user.auth.otpLockedUntil > new Date()) {
+      throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
+    }
+
+    // Rate limiting for password reset OTP resend
+    const otpKey = `password-reset-resend_${email}`;
+    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW) {
+      throw new Error('Password reset OTP recently sent. Please wait before requesting again.');
+    }
+    otpRateLimit[otpKey] = Date.now();
+
+    // Generate new 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
+
+    user.auth.otp = otp;
+    user.auth.otpExpires = expires;
+    user.auth.otpType = 'password-reset';
+    user.auth.otpAttempts = 0; // Reset attempts when sending new OTP
+    user.auth.otpLockedUntil = null; // Reset lock when sending new OTP
+    await user.save();
+
+    await sendOtp(email, otp);
+    return { success: true, message: 'New password reset OTP sent to your email.' };
   },
 
   async requestPasswordReset({ email }) {
     const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No user found with this email.');
 
+    // Check if user is locked from too many attempts
+    if (user.auth.otpLockedUntil && user.auth.otpLockedUntil > new Date()) {
+      throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
+    }
+
+    // Rate limiting for password reset OTP
+    const otpKey = `password-reset_${email}`;
+    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW) {
+      throw new Error('Password reset OTP recently sent. Please wait before requesting again.');
+    }
+    otpRateLimit[otpKey] = Date.now();
+
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes from now
 
-    user.auth.resetOtp = otp;
-    user.auth.resetOtpExpires = expires;
+    user.auth.otp = otp;
+    user.auth.otpExpires = expires;
+    user.auth.otpType = 'password-reset';
+    user.auth.otpAttempts = 0; // Reset attempts when sending new OTP
+    user.auth.otpLockedUntil = null; // Reset lock when sending new OTP
     await user.save();
 
     await sendOtp(email, otp);
-    return { success: true, message: 'OTP sent to your email.' };
+    return { success: true, message: 'Password reset OTP sent to your email.' };
+  },
+
+  async verifyPasswordResetOtp({ email, otp }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    const MAX_OTP_ATTEMPTS = 5;
+    const OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
+
+    // Check if user is locked from too many attempts
+    if (user.auth.otpLockedUntil && user.auth.otpLockedUntil > new Date()) {
+      throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
+    }
+
+    // Verify OTP type is for password reset
+    if (user.auth.otpType !== 'password-reset') {
+      throw new Error('Invalid OTP type. This OTP is not for password reset.');
+    }
+
+    // Verify OTP
+    if (user.auth.otp !== otp || user.auth.otpExpires < new Date()) {
+      user.auth.otpAttempts = (user.auth.otpAttempts || 0) + 1;
+      
+      if (user.auth.otpAttempts >= MAX_OTP_ATTEMPTS) {
+        user.auth.otpLockedUntil = new Date(Date.now() + OTP_LOCK_TIME);
+      }
+      
+      await user.save();
+      throw new Error('Invalid or expired password reset OTP. Please check your email and try again.');
+    }
+
+    // Clear OTP data on successful verification
+    user.auth.otp = null;
+    user.auth.otpExpires = null;
+    user.auth.otpType = undefined;
+    user.auth.otpAttempts = 0;
+    user.auth.otpLockedUntil = null;
+    await user.save();
+
+    return { success: true, message: 'Password reset OTP verified successfully.' };
   },
 
   async resetPassword({ email, otp, newPassword }) {
     const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No user found with this email.');
 
-    if (!user.auth.resetOtp || !user.auth.resetOtpExpires) {
-      throw new Error('No password reset requested.');
+    // Verify OTP type is for password reset
+    if (user.auth.otpType !== 'password-reset') {
+      throw new Error('Invalid OTP type. This OTP is not for password reset.');
     }
-    if (user.auth.resetOtp !== otp) {
-      throw new Error('Invalid OTP.');
+
+    // Verify OTP
+    if (user.auth.otp !== otp || user.auth.otpExpires < new Date()) {
+      throw new Error('Invalid or expired OTP. Please request a new password reset.');
     }
-    if (user.auth.resetOtpExpires < new Date()) {
-      throw new Error('OTP has expired.');
-    }
-    if (!newPassword || newPassword.length < 8) {
-      throw new Error('Password must be at least 8 characters long.');
-    }
+
     // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.auth.password = hashedPassword;
-    user.auth.resetOtp = null;
-    user.auth.resetOtpExpires = null;
+    
+    // Clear OTP data
+    user.auth.otp = null;
+    user.auth.otpExpires = null;
+    user.auth.otpType = undefined;
+    user.auth.otpAttempts = 0;
+    user.auth.otpLockedUntil = null;
+    
     await user.save();
-    return { success: true, message: 'Password has been reset successfully.' };
+    return { success: true, message: 'Password reset successfully.' };
+  },
+
+  async sendWithdrawalOtp({ email }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    // Check if user is locked from too many attempts
+    if (user.auth.withdrawalOtpLockedUntil && user.auth.withdrawalOtpLockedUntil > new Date()) {
+      throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
+    }
+
+    // Rate limiting for withdrawal OTP
+    const otpKey = `withdrawal_${email}`;
+    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW) {
+      throw new Error('Withdrawal OTP recently sent. Please wait before requesting again.');
+    }
+    otpRateLimit[otpKey] = Date.now();
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+
+    user.auth.withdrawalOtp = otp;
+    user.auth.withdrawalOtpExpires = expires;
+    user.auth.withdrawalOtpAttempts = 0; // Reset attempts when sending new OTP
+    user.auth.withdrawalOtpLockedUntil = null; // Reset lock when sending new OTP
+    await user.save();
+
+    await sendOtp(email, otp);
+    return { success: true, message: 'Withdrawal OTP sent to your email.' };
+  },
+
+  async verifyWithdrawalOtp({ email, otp }) {
+    const user = await User.findOne({ 'auth.email': email });
+    if (!user) throw new Error('No user found with this email.');
+
+    const MAX_WITHDRAWAL_OTP_ATTEMPTS = 5;
+    const WITHDRAWAL_OTP_LOCK_TIME = 15 * 60 * 1000; // 15 minutes
+
+    // Check if user is locked from too many attempts
+    if (user.auth.withdrawalOtpLockedUntil && user.auth.withdrawalOtpLockedUntil > new Date()) {
+      throw new Error('Too many incorrect attempts. Please try again after 15 minutes.');
+    }
+
+    // Verify OTP
+    if (user.auth.withdrawalOtp !== otp || user.auth.withdrawalOtpExpires < new Date()) {
+      user.auth.withdrawalOtpAttempts = (user.auth.withdrawalOtpAttempts || 0) + 1;
+      
+      if (user.auth.withdrawalOtpAttempts >= MAX_WITHDRAWAL_OTP_ATTEMPTS) {
+        user.auth.withdrawalOtpLockedUntil = new Date(Date.now() + WITHDRAWAL_OTP_LOCK_TIME);
+      }
+      
+      await user.save();
+      throw new Error('Invalid or expired withdrawal OTP. Please check your email and try again.');
+    }
+
+    // Clear OTP data on successful verification
+    user.auth.withdrawalOtp = null;
+    user.auth.withdrawalOtpExpires = null;
+    user.auth.withdrawalOtpAttempts = 0;
+    user.auth.withdrawalOtpLockedUntil = null;
+    await user.save();
+
+    return { success: true, message: 'Withdrawal OTP verified successfully.' };
   },
 };
 

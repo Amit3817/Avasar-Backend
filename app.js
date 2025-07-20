@@ -23,6 +23,7 @@ import adminRoutes from './routes/admin.js';
 import withdrawalRoutes from './routes/withdrawal.js';
 import contactRoutes from './routes/contact.js';
 import investmentRoutes from './routes/investment.js';
+import { sendSuccess, sendError } from './utils/responseHelpers.js';
 
 // Validate environment variabdles (only in production)
 if (process.env.NODE_ENV === 'production') {
@@ -117,7 +118,7 @@ app.use('/api/investment', investmentRoutes);
 // Error-handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack || err);
-  res.status(500).json({ error: 'Internal server error' });
+  sendError(res, 'Internal server error', 500);
 });
 
 const PORT = process.env.PORT || 5000;
@@ -165,7 +166,7 @@ cron.schedule('0 1 1 * *', async () => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  sendSuccess(res, { status: 'ok', timestamp: new Date().toISOString() }, 'Health check successful');
 }); 
 
 export default app;

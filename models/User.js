@@ -14,14 +14,18 @@ const authSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   password: String,
   isVerified: { type: Boolean, default: false },
+  // Unified OTP system for registration and password reset
   otp: String,
   otpExpires: Date,
   otpAttempts: { type: Number, default: 0 },
   otpLockedUntil: { type: Date, default: null },
+  otpType: { type: String, enum: ['registration', 'password-reset'], default: undefined },
   isAdmin: { type: Boolean, default: false },
-  // Password reset fields
-  resetOtp: { type: String, default: null },
-  resetOtpExpires: { type: Date, default: null }
+  // Withdrawal OTP fields (separate for financial security)
+  withdrawalOtp: { type: String, default: null },
+  withdrawalOtpExpires: { type: Date, default: null },
+  withdrawalOtpAttempts: { type: Number, default: 0 },
+  withdrawalOtpLockedUntil: { type: Date, default: null }
 }, { _id: false });
 
 // Referral subdocument

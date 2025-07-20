@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, verifyOtp, login, resendOtp, requestPasswordReset, resetPassword } from '../controllers/authController.js';
+import { register, verifyOtp, login, resendOtp, requestPasswordReset, resetPassword, sendWithdrawalOtp, verifyWithdrawalOtp, verifyPasswordResetOtp, resendPasswordResetOtp } from '../controllers/authController.js';
 import { registerValidator, loginValidator, otpValidator, resendOtpValidator } from '../validators/authValidators.js';
 import { validationResult } from 'express-validator';
 import { otpVerificationLimiter, otpResendLimiter } from '../middleware/otpLimiter.js';
@@ -194,6 +194,82 @@ router.post('/resend-otp', otpResendLimiter, resendOtpValidator, handleValidatio
 
 /**
  * @swagger
+ * /api/auth/send-withdrawal-otp:
+ *   post:
+ *     summary: Send OTP for withdrawal verification
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Withdrawal OTP sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Withdrawal OTP sent to your email."
+ *       400:
+ *         description: User not found or rate limit exceeded
+ *       429:
+ *         description: Rate limit exceeded
+ */
+router.post('/send-withdrawal-otp', otpResendLimiter, resendOtpValidator, handleValidation, sendWithdrawalOtp);
+
+/**
+ * @swagger
+ * /api/auth/verify-withdrawal-otp:
+ *   post:
+ *     summary: Verify OTP for withdrawal
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               otp:
+ *                 type: string
+ *                 description: 6-digit OTP code
+ *     responses:
+ *       200:
+ *         description: Withdrawal OTP verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Withdrawal OTP verified successfully."
+ *       400:
+ *         description: Invalid OTP or expired
+ *       429:
+ *         description: Too many OTP attempts
+ */
+router.post('/verify-withdrawal-otp', otpVerificationLimiter, otpValidator, handleValidation, verifyWithdrawalOtp);
+
+/**
+ * @swagger
  * /api/auth/check-verification:
  *   post:
  *     summary: Check if user email is verified
@@ -254,7 +330,122 @@ router.post('/check-verification', async (req, res) => {
 // Password reset request endpoint
 router.post('/request-password-reset', requestPasswordReset);
 
-// Password reset endpoint
-router.post('/reset-password', resetPassword);
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Reset password with OTP
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *               - newPassword
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               otp:
+ *                 type: string
+ *                 description: 6-digit OTP code
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset successfully."
+ *       400:
+ *         description: Invalid OTP or password requirements not met
+ */
+router.post('/reset-password', otpValidator, handleValidation, resetPassword);
+
+/**
+ * @swagger
+ * /api/auth/verify-password-reset-otp:
+ *   post:
+ *     summary: Verify password reset OTP
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               otp:
+ *                 type: string
+ *                 description: 6-digit OTP code
+ *     responses:
+ *       200:
+ *         description: Password reset OTP verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Password reset OTP verified successfully."
+ *       400:
+ *         description: Invalid OTP or expired
+ *       429:
+ *         description: Too many OTP attempts
+ */
+router.post('/verify-password-reset-otp', otpVerificationLimiter, otpValidator, handleValidation, verifyPasswordResetOtp);
+
+/**
+ * @swagger
+ * /api/auth/resend-password-reset-otp:
+ *   post:
+ *     summary: Resend password reset OTP
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: New password reset OTP sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "New password reset OTP sent to your email."
+ *       400:
+ *         description: User not found or rate limit exceeded
+ *       429:
+ *         description: Rate limit exceeded
+ */
+router.post('/resend-password-reset-otp', otpResendLimiter, resendOtpValidator, handleValidation, resendPasswordResetOtp);
 
 export default router; 

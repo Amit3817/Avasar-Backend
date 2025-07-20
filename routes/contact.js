@@ -1,5 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
+import { sendSuccess, sendError, sendValidationError } from '../utils/responseHelpers.js';
 
 const router = express.Router();
 
@@ -23,11 +24,7 @@ const contactValidator = [
 function handleValidation(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Validation failed',
-      errors: errors.array() 
-    });
+    return sendValidationError(res, errors.array());
   }
   next();
 }
@@ -95,16 +92,10 @@ router.post('/', contactValidator, handleValidation, async (req, res) => {
     // For now, we'll just log and return success
     // TODO: Implement actual contact form processing
     
-    res.json({
-      success: true,
-      message: "Message sent successfully! We'll get back to you within 24 hours."
-    });
+    sendSuccess(res, { message: "Message sent successfully! We'll get back to you within 24 hours." });
     
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Failed to send message. Please try again later.'
-    });
+    sendError(res, error.message, 500);
   }
 });
 

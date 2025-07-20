@@ -36,7 +36,7 @@ const adminService = {
       .sort(sort)
       .skip(skip)
       .limit(limit)
-      .select('avasarId profile auth.email auth.isAdmin auth.isVerified referral.referredBy referral.referralCode referral.leftChildren referral.rightChildren income.walletBalance income.referralIncome income.matchingIncome income.rewardIncome income.investmentIncome investment.totalInvestment investment.availableForWithdrawal investment.lockedInvestmentAmount system.pairs system.totalPairs system.awardedRewards createdAt')
+      .select('avasarId profile auth.email auth.isAdmin auth.isVerified referral.referredBy referral.referralCode referral.leftChildren referral.rightChildren referral.directReferrals referral.teamSize referral.indirectReferrals income.walletBalance income.referralIncome income.matchingIncome income.rewardIncome income.investmentIncome income.investmentReferralIncome income.investmentReferralPrincipalIncome income.investmentReferralReturnIncome income.referralInvestmentPrincipal investment.totalInvestment investment.availableForWithdrawal investment.lockedInvestmentAmount system.pairs system.totalPairs system.awardedRewards createdAt')
       .populate('referral.referredBy', 'avasarId profile.fullName auth.email')
       .lean();
     
@@ -100,6 +100,12 @@ const adminService = {
   },
 
   async updatePaymentSlipStatus(id, { status, reason, remarks }, adminId) {
+    // Prevent re-approving an already approved slip
+    const existingSlip = await PaymentSlip.findById(id);
+    if (!existingSlip) throw new Error('Payment slip not found.');
+    if (existingSlip.status === 'approved' && status === 'approved') {
+      throw new Error('This payment slip is already approved.');
+    }
     let update = { status };
     if (status === 'approved') {
       const now = new Date();

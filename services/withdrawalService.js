@@ -103,6 +103,15 @@ const withdrawalService = {
     withdrawal.rejectedAt = new Date();
     withdrawal.remarks = remarks;
     await withdrawal.save();
+
+    // Refund the amount to the user's wallet balance
+    const user = await User.findById(withdrawal.user);
+    if (user) {
+      user.income = user.income || {};
+      user.income.walletBalance = (user.income.walletBalance || 0) + (withdrawal.amount || 0);
+      await user.save();
+    }
+
     return withdrawal;
   },
 };

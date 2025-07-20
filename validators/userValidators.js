@@ -8,6 +8,7 @@ export const profileUpdateValidator = [
 
 export const withdrawalValidator = [
   body('amount').isNumeric().withMessage('Amount is required and must be a number'),
+  body('withdrawalOtp').isLength({ min: 6, max: 6 }).withMessage('Withdrawal OTP must be exactly 6 digits').matches(/^\d{6}$/).withMessage('Withdrawal OTP can only contain numbers'),
   body('bankAccount').optional().custom((value, { req }) => {
     if (req.body.paymentMethod === 'bank') {
       if (!value || !value.accountHolder || !value.accountNumber || !value.ifsc || !value.bankName) {

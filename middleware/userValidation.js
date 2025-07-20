@@ -1,5 +1,5 @@
 import User from '../models/User.js';
-import { sendNotFound, sendForbidden } from '../utils/responseHelpers.js';
+import { sendNotFound, sendForbidden, sendError } from '../utils/responseHelpers.js';
 
 // Middleware to validate if a user exists
 export const validateUserExists = async (req, res, next) => {
