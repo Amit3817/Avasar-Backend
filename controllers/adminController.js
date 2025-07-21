@@ -78,4 +78,14 @@ export async function getUserById(req, res) {
     logger.error('Error fetching user by ID:', err);
     sendError(res, err.message, 500);
   }
+}
+
+export async function getPlatformIncomeStats(req, res) {
+  try {
+    const stats = await adminService.getPlatformIncomeStats();
+    sendSuccess(res, stats, 'Platform income stats fetched successfully.');
+  } catch (err) {
+    logger.error('Error fetching platform income stats:', err);
+    sendError(res, err.message, 500);
+  }
 } 

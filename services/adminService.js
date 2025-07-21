@@ -213,6 +213,28 @@ const adminService = {
       pendingPaymentSlips: pendingPaymentSlips
     };
   },
+
+  async getPlatformIncomeStats() {
+    // Aggregate total incomes for all users
+    const result = await User.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalReferralIncome: { $sum: "$income.referralIncome" },
+          totalInvestmentIncome: { $sum: "$income.investmentIncome" },
+          totalMatchingIncome: { $sum: "$income.matchingIncome" },
+          totalRewardIncome: { $sum: "$income.rewardIncome" }
+        }
+      }
+    ]);
+    const stats = result[0] || {};
+    return {
+      totalReferralIncome: stats.totalReferralIncome || 0,
+      totalInvestmentIncome: stats.totalInvestmentIncome || 0,
+      totalMatchingIncome: stats.totalMatchingIncome || 0,
+      totalRewardIncome: stats.totalRewardIncome || 0
+    };
+  },
 };
 
 export default adminService; 

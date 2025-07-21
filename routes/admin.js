@@ -2,7 +2,7 @@ import express from 'express';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { paginationMiddleware } from '../middleware/pagination.js';
 import { validateUserExists, validateUserActive } from '../middleware/userValidation.js';
-import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus, getUserRewards, getDashboardStats } from '../controllers/adminController.js';
+import { getAllUsers, updateUserIncome, getAllPaymentSlips, updatePaymentSlipStatus, getUserRewards, getDashboardStats, getPlatformIncomeStats } from '../controllers/adminController.js';
 import { adminUploadSlip, approveWithdrawal, rejectWithdrawal, getAllWithdrawals } from '../controllers/paymentController.js';
 import upload from '../middleware/upload.js';
 import User from '../models/User.js';
@@ -151,6 +151,9 @@ router.put('/withdrawal/:withdrawalId/approve', requireAuth, requireAdmin, withd
 
 // ADMIN: Reject withdrawal request
 router.put('/withdrawal/:withdrawalId/reject', requireAuth, requireAdmin, withdrawalIdParamValidator, handleValidation, rejectWithdrawal);
+
+// Platform-wide income stats
+router.get('/platform-income-stats', requireAuth, requireAdmin, getPlatformIncomeStats);
 
 router.get('/user/:id', requireAuth, requireAdmin, async (req, res) => {
   await import('../controllers/adminController.js').then(ctrl => ctrl.getUserById(req, res));

@@ -29,3 +29,5 @@ coverage/
 .idea/
 *.sublime-workspace
 *.sublime-project 
+
+addAdmin.js
