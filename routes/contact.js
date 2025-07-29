@@ -1,6 +1,9 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { sendSuccess, sendError, sendValidationError } from '../utils/responseHelpers.js';
+import ContactMessage from '../models/ContactMessage.js';
+import { submitContactForm, getUserMessages, getUserMessageDetail, getAllMessages, getMessageDetail, adminReplyOrUpdate } from '../controllers/contactController.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -16,7 +19,7 @@ const contactValidator = [
     .withMessage('Please provide a valid email address'),
   body('message')
     .trim()
-    .isLength({ min: 10, max: 1000 })
+    .isLength({ min: 1, max: 1000 })
     .withMessage('Message must be between 10 and 1000 characters')
 ];
 
@@ -79,24 +82,15 @@ function handleValidation(req, res, next) {
  *       500:
  *         description: Internal server error
  */
-router.post('/', contactValidator, handleValidation, async (req, res) => {
-  try {
-    const { name, email, message } = req.body;
-    
-    // Here you would typically:
-    // 1. Save to database
-    // 2. Send email notification
-    // 3. Send confirmation email to user
-    // 4. Integrate with CRM system
-    
-    // For now, we'll just log and return success
-    // TODO: Implement actual contact form processing
-    
-    sendSuccess(res, { message: "Message sent successfully! We'll get back to you within 24 hours." });
-    
-  } catch (error) {
-    sendError(res, error.message, 500);
-  }
-});
+router.post('/', contactValidator, handleValidation, submitContactForm);
+
+// User: get own messages
+router.get('/my', requireAuth, getUserMessages);
+router.get('/my/:id', requireAuth, getUserMessageDetail);
+
+// Admin: get all messages, get detail, update/reply
+router.get('/', requireAuth, requireAdmin, getAllMessages);
+router.get('/:id', requireAuth, requireAdmin, getMessageDetail);
+router.patch('/:id', requireAuth, requireAdmin, adminReplyOrUpdate);
 
 export default router; 
