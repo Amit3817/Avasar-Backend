@@ -13,6 +13,11 @@ import {
   INVESTMENT_BONUS_MONTHS
 } from '../config/constants.js';
 import logger from '../config/logger.js';
+import {createUserHistory} from "./historyService.js";
+import dotenv from 'dotenv';
+dotenv.config()
+
+const ADMIN_ID = process.env.ADMIN_USER_ID||"687d3cc06f562dea317361ec"; // Replace with actual admin user ID
 
 const referralService = {
   // Get direct referrals for a user
@@ -176,6 +181,12 @@ const referralService = {
           user.income = user.income || {};
           user.income.rewardIncome = (user.income.rewardIncome || 0) + milestone.reward;
           user.income.walletBalance = (user.income.walletBalance || 0) + milestone.reward;
+          await createUserHistory({
+          userId: user._id,
+          type: 'reward',
+          amount: milestone.reward,
+          remarks: `Milestone "${milestone.name}" achieved for ${milestone.pairs} pairs`
+        }, session);
         } else if (milestone.reward) {
         }
         await user.save(session ? { session } : {});
@@ -230,12 +241,21 @@ const referralService = {
         const requiredDirects = DIRECT_REQS[level] || 0;
         const directCount = directCountMap.get(parent._id.toString()) || 0;
         
-        if (directCount < requiredDirects) continue;
         
         // Referral income
         const referralPercent = REFERRAL_PERCENTS[level] || 0;
         const referralIncome = Math.floor(regAmount * referralPercent);
         
+        if (directCount < requiredDirects) {
+  const amt = referralIncome;
+  if (amt > 0) {
+    referralOps.push({ updateOne: { filter: { _id: ADMIN_ID }, update: { $inc: { 'income.referralIncome': amt, 'income.walletBalance': amt } } } });
+    await createUserHistory({ userId: ADMIN_ID, type: "extra-referral", amount: amt, remarks: `Redirected L${level} income from ${newUserId}` }, useSession);
+    logger.info(`Referral ₹${amt} redirected to Admin from L${level}, user ${parent._id}`);
+  }
+  continue;
+}
+
         if (referralIncome > 0) {
           referralOps.push({
             updateOne: {
@@ -249,6 +269,13 @@ const referralService = {
               }
             }
           });
+          await createUserHistory({
+            userId: parent._id,
+            type: "referral",
+            amount: referralIncome,
+            remarks: `Level ${level} referral income from user ${newUserId}`,
+          }, useSession);
+
           logger.info(`Referral income awarded: User ${parent._id} received ₹${referralIncome} at level ${level}`);
         }
       }
@@ -267,7 +294,30 @@ const referralService = {
           const uplineRequiredDirects = DIRECT_REQS[uplineLevel + 1] || 0;
           const uplineDirectCount = directCountMap.get(uplineParent._id.toString()) || 0;
           
-          if (uplineDirectCount < uplineRequiredDirects) continue;
+          if (uplineDirectCount < uplineRequiredDirects) {
+  matchingOps.push({
+    updateOne: {
+      filter: { _id: ADMIN_ID },
+      update: {
+        $inc: {
+          'income.matchingIncome': pairBonus,
+          'income.walletBalance': pairBonus,
+          'system.totalPairs': 1,
+          [`system.matchingPairsToday.${today}`]: 1
+        }
+      }
+    }
+  });
+  await createUserHistory({
+    userId: ADMIN_ID,
+    type: "extra-matching",
+    amount: pairBonus,
+    remarks: `Redirected matching income from ineligible user ${uplineParent._id} for ${newUserId}`
+  }, useSession);
+  logger.info(`Matching income ₹${pairBonus} redirected to Admin from user ${uplineParent._id}`);
+  continue;
+}
+
           
           let pairsToAward = 0;
           if (uplineLevel === 0) {
@@ -283,6 +333,31 @@ const referralService = {
             if (pairsToAward > 0) {
               const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
               const pairsToAwardToday = Math.min(pairsToAward, MAX_PAIRS_PER_DAY - currentPairsToday);
+              if (pairsToAwardToday <= 0) {
+  // Redirect to admin
+  matchingOps.push({
+    updateOne: {
+      filter: { _id: ADMIN_ID },
+      update: {
+        $inc: {
+          'income.matchingIncome': pairBonus,
+          'income.walletBalance': pairBonus,
+          'system.totalPairs': 1,
+          [`system.matchingPairsToday.${today}`]: 1
+        }
+      }
+    }
+  });
+  await createUserHistory({
+    userId: ADMIN_ID,
+    type: "extra-matching",
+    amount: pairBonus,
+    remarks: `Redirected matching bonus (pair cap reached) from ${uplineParent._id} for new user ${newUserId}`,
+  }, useSession);
+  logger.info(`Matching income ₹${pairBonus} redirected to Admin (cap reached for user ${uplineParent._id})`);
+  continue;
+}
+
               if (pairsToAwardToday > 0) {
                 matchingOps.push({
                   updateOne: {
@@ -300,6 +375,13 @@ const referralService = {
                     }
                   }
                 });
+                await createUserHistory({
+                  userId: uplineParent._id,
+                  type: "matching",
+                  amount: pairBonus * pairsToAwardToday,
+                  remarks: `Matching income for ${pairsToAwardToday} pair(s) from new user ${newUserId}`,
+                }, useSession);
+
                 logger.info(`Matching income awarded: User ${uplineParent._id} received ₹${pairBonus * pairsToAwardToday} for ${pairsToAwardToday} new pairs (now totalPairs=${(uplineParent.system?.totalPairs || 0) + pairsToAwardToday})`);
                 rewardChecks.add(uplineParent._id.toString());
               }
@@ -311,6 +393,30 @@ const referralService = {
             logger.info(`Matching bonus calc (upline): user=${uplineParent._id}, pairsToAward=${pairsToAward}, currentPairsToday=${uplineParent.system?.matchingPairsToday?.[today] || 0}`);
             const currentPairsToday = uplineParent.system?.matchingPairsToday?.[today] || 0;
             const pairsToAwardToday = Math.min(pairsToAward, MAX_PAIRS_PER_DAY - currentPairsToday);
+            if (pairsToAwardToday <= 0) {
+  // Redirect to admin
+  matchingOps.push({
+    updateOne: {
+      filter: { _id: ADMIN_ID },
+      update: {
+        $inc: {
+          'income.matchingIncome': pairBonus,
+          'income.walletBalance': pairBonus,
+          'system.totalPairs': 1,
+          [`system.matchingPairsToday.${today}`]: 1
+        }
+      }
+    }
+  });
+  await createUserHistory({
+    userId: ADMIN_ID,
+    type: "extra-matching",
+    amount: pairBonus,
+    remarks: `Redirected matching bonus (pair cap reached) from ${uplineParent._id} for new user ${newUserId}`,
+  }, useSession);
+  logger.info(`Matching income ₹${pairBonus} redirected to Admin (cap reached for user ${uplineParent._id})`);
+  continue;
+}
             if (pairsToAwardToday > 0) {
               matchingOps.push({
                 updateOne: {
@@ -325,6 +431,13 @@ const referralService = {
                   }
                 }
               });
+              await createUserHistory({
+                userId: uplineParent._id,
+                type: "matching",
+                amount: pairBonus * pairsToAwardToday,
+                remarks: `Matching income for ${pairsToAwardToday} pair(s) from new user ${newUserId}`,
+              }, useSession);
+
               logger.info(`Matching income awarded: User ${uplineParent._id} received ₹${pairBonus * pairsToAwardToday} for ${pairsToAwardToday} new pairs (now totalPairs=${(uplineParent.system?.totalPairs || 0) + pairsToAwardToday})`);
               rewardChecks.add(uplineParent._id.toString());
             }
@@ -468,9 +581,68 @@ const referralService = {
         const requiredDirects = directReqs[level];
         
         
-        if (directCount < requiredDirects) {
-          continue;
+if (directCount < requiredDirects) {
+  const oneTimeBonus = Math.floor(investmentAmount * oneTimePercents[level]);
+  const monthlyBonus = Math.floor(monthlyReturn * monthlyPercents[level]);
+
+  if (oneTimeBonus > 0) {
+    oneTimeBonusOps.push({
+      updateOne: {
+        filter: { _id: ADMIN_ID },
+        update: {
+          $inc: {
+            'income.investmentReferralIncome': oneTimeBonus,
+            'income.investmentReferralPrincipalIncome': oneTimeBonus,
+            'income.referralInvestmentPrincipal': investmentAmount,
+            'income.walletBalance': oneTimeBonus,
+            'investment.teamInvestment': investmentAmount
+          }
         }
+      }
+    });
+
+    await createUserHistory({
+      userId: ADMIN_ID,
+      type: "extra-investment-referral",
+      amount: oneTimeBonus,
+      remarks: `Redirected L${level} investment bonus from ${parent._id} for investor ${investorId}`
+    }, session);
+  }
+
+  if (monthlyBonus > 0) {
+    const now = new Date();
+    const investmentId = new mongoose.Types.ObjectId();
+    const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    const newBonuses = [];
+
+    for (let m = 0; m < INVESTMENT_BONUS_MONTHS; m++) {
+      newBonuses.push({
+        investor: investorId,
+        investmentId,
+        amount: monthlyBonus,
+        month: m + 1,
+        awarded: false,
+        createdAt: startDate,
+        type: 'investmentReturn'
+      });
+    }
+
+    bonusUpdates.push({
+      userId: ADMIN_ID,
+      newBonuses
+    });
+
+    await createUserHistory({
+      userId: ADMIN_ID,
+      type: 'extra-monthly-investment-bonus',
+      amount: monthlyBonus * INVESTMENT_BONUS_MONTHS,
+      remarks: `Redirected ₹${monthlyBonus}×6 from L${level} user ${parent._id} for investor ${investorId}`
+    }, session);
+  }
+
+  continue;
+}
+
         
         // One-time investment referral bonus
         const oneTimeBonus = Math.floor(investmentAmount * oneTimePercents[level]);
@@ -484,11 +656,18 @@ const referralService = {
                   'income.investmentReferralIncome': oneTimeBonus,
                   'income.investmentReferralPrincipalIncome': oneTimeBonus,
                   'income.referralInvestmentPrincipal': investmentAmount,
-                  'income.walletBalance': oneTimeBonus
+                  'income.walletBalance': oneTimeBonus,
+                  'investment.teamInvestment': investmentAmount
                 }
               }
             }
           });
+           await createUserHistory({
+   userId: parent._id,
+   type: "investment-referral",
+   amount: oneTimeBonus,
+   remarks: `One-time investment bonus from level ${level} for investor ${investorId}`
+ }, session);
           logger.info(`Investment referral bonus awarded: User ${parent._id} received ₹${oneTimeBonus} at level ${level}`);
         }
         
@@ -521,6 +700,12 @@ const referralService = {
             userId: parent._id,
             newBonuses
           });
+           await createUserHistory({
+   userId: parent._id,
+   type: 'monthly-investment-bonus',
+   amount: monthlyBonus * INVESTMENT_BONUS_MONTHS,
+   remarks: `Scheduled ₹${monthlyBonus} for 6 months (level ${level}) from investor ${investorId}`
+}, session);
           logger.info(`Monthly investment return bonus scheduled: User ${parent._id} will receive ₹${monthlyBonus} for 6 months at level ${level}`);
         }
       }
@@ -679,7 +864,13 @@ const referralService = {
               bonus.awardedDate = new Date();
               updated = true;
               processedCount++;
-              
+              await createUserHistory({
+  userId: user._id,
+  type: 'investmentReferralReturn',
+  amount: bonus.amount,
+  status: 'completed',
+  remarks: `Monthly investment bonus (Month ${bonus.month}) from investor ${bonus.investor}`
+}, session);
             }
           }
         }

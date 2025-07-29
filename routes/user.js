@@ -9,6 +9,7 @@ import { requestWithdrawal, withdrawValidators, getDirectReferrals, getIndirectR
 import investmentService from '../services/investmentService.js';
 import referralService from '../services/referralService.js';
 import upload from '../middleware/upload.js';
+import { handleGetUserHistoryByUserId } from '../controllers/historyController.js';
 
 const router = express.Router();
 
@@ -174,5 +175,6 @@ router.get('/direct-right', requireAuth, getDirectRight);
 
 // New endpoint to update all referral counts
 router.get('/update-referral-counts', requireAuth, updateReferralCounts);
+router.get('/history/',requireAuth,handleGetUserHistoryByUserId)
 
 export default router; 

@@ -68,7 +68,8 @@ const investmentSchema = new mongoose.Schema({
   lockedInvestmentAmount: { type: Number, default: 0 },
   availableAmount: { type: Number, default: 0 },
   availableForWithdrawal: { type: Number, default: 0 },
-  pendingInvestmentBonuses: { type: Array, default: [] }
+  pendingInvestmentBonuses: { type: Array, default: [] },
+  teamInvestment:{type:Number,default:0}
 }, { _id: false });
 
 // System subdocument
