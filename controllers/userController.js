@@ -165,7 +165,6 @@ export const updateReferralCounts = async (req, res) => {
     const rightTeamCount = Array.isArray(currentUser.referral?.rightChildren) ? 
       currentUser.referral.rightChildren.length : 0;
     
-    console.log(`Team counts from arrays: left=${leftTeamCount}, right=${rightTeamCount}`);
     
     // Get indirect referrals
     const indirectResult = await referralService.getIndirectReferrals(userId);

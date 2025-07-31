@@ -172,8 +172,18 @@ const authService = {
   },
 
   async login({ email, password }) {
-    const user = await User.findOne({ 'auth.email': email });
-    if (!user) throw new Error('No account found with this email address.');
+    let user = await User.findOne({ 'auth.email': email });
+    if (!user) 
+      {
+        user=await User.findOne({ 'avasarId': email });
+        if (user) {
+          email = user.auth.email;
+         }
+         else{
+
+           throw new Error('No account found with this email address.');
+         } // Use the email associated with the Avasar ID
+      }
     if (!user.auth.isVerified) throw new Error('Your email is not verified. Please verify your email with the OTP sent during registration.');
     const match = await bcrypt.compare(password, user.auth.password);
     if (!match) throw new Error('Incorrect password. Please try again.');

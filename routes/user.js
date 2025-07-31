@@ -1,4 +1,5 @@
 import express from 'express';
+ // Adjust path as needed
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import User from '../models/User.js';
 import PaymentSlip from '../models/PaymentSlip.js';
@@ -39,9 +40,6 @@ router.get('/profile', requireAuth, async (req, res) => {
     const rightTeamCount = Array.isArray(currentUser.referral?.rightChildren) ? 
       currentUser.referral.rightChildren.length : 0;
     
-    console.log(`Team counts from arrays: left=${leftTeamCount}, right=${rightTeamCount}`);
-    
-    console.log(`Direct DB counts: left=${leftTeamCount}, right=${rightTeamCount}`);
     
     // Get indirect referrals
     const indirectResult = await referralService.getIndirectReferrals(req.user._id);
@@ -98,22 +96,72 @@ router.get('/profile', requireAuth, async (req, res) => {
 // USER: Upload profile picture (Cloudinary)
 router.post('/profile-picture', requireAuth, upload.single('profilePicture'), async (req, res) => {
   const file = req.file;
-  if (!file) return res.status(400).json({ error: 'No file uploaded' });
+  
+  // Validate file exists
+  if (!file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.mimetype)) {
+    return res.status(400).json({ error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed' });
+  }
+  
+  // Validate file size (e.g., 5MB limit)
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    return res.status(400).json({ error: 'File size too large. Maximum size is 5MB' });
+  }
   
   try {
-    // Upload to Cloudinary using centralized service
+    // Import User model (add this at the top of your file)
+    
+    // Fetch the full user document from database
+    const user = await User.findById(req.user._id || req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Store old picture URL and extract public_id before upload
+    const oldPictureUrl = user.profile?.profilePicture;
+    const oldPublicId = oldPictureUrl ? extractPublicIdFromUrl(oldPictureUrl) : null;
+    
+    // Upload new picture to Cloudinary
     const result = await uploadProfilePicture(file.buffer, file.originalname);
     
+    // Ensure profile object exists
+    if (!user.profile) {
+      user.profile = {};
+    }
+    
     // Update user's profile picture
-    req.user.profile.profilePicture = result.secure_url;
-    await req.user.save();
+    user.profile.profilePicture = result.secure_url;
+    await user.save();
+    
+    // Delete old picture from Cloudinary (non-blocking)
+    if (oldPublicId && oldPictureUrl !== result.secure_url) {
+      deleteFromCloudinary(oldPublicId, 'image')
+        .then(() => console.log('Old profile picture deleted successfully'))
+        .catch(err => console.error('Failed to delete old profile picture:', err));
+    }
     
     res.json({ 
       message: 'Profile picture uploaded successfully', 
-      url: req.user.profile?.profilePicture 
+      url: result.secure_url,
+      user: {
+        profile: {
+          profilePicture: result.secure_url
+        }
+      }
     });
   } catch (err) {
-    res.status(500).json({ error: 'Profile picture upload failed' });
+    console.error('Profile picture upload error:', err);
+    res.status(500).json({ 
+      error: 'Profile picture upload failed',
+      message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 

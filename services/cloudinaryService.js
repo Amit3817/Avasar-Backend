@@ -50,8 +50,21 @@ export const uploadToCloudinary = async (fileBuffer, folder, publicId = null, re
  * @returns {Promise<Object>} Upload result with secure URL
  */
 export const uploadProfilePicture = async (fileBuffer, fileName) => {
-  const publicId = `profile_${Date.now()}_${fileName.replace(/\.[^/.]+$/, '')}`;
-  return await uploadToCloudinary(fileBuffer, 'avasar/profile-pictures', publicId, 'image');
+  // Sanitize filename: remove special characters, spaces, and limit length
+  const sanitizedFileName = fileName
+    .replace(/\.[^/.]+$/, '') // Remove extension
+    .replace(/[^a-zA-Z0-9-_]/g, '_') // Replace special chars with underscore
+    .toLowerCase()
+    .substring(0, 50); // Limit length to prevent too long public_ids
+  
+  const publicId = `profile_${Date.now()}_${sanitizedFileName}`;
+  
+  try {
+    return await uploadToCloudinary(fileBuffer, 'avasar/profile-pictures', publicId, 'image');
+  } catch (error) {
+    console.error('Profile picture upload error:', error);
+    throw error;
+  }
 };
 
 /**

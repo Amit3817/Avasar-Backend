@@ -1,13 +1,23 @@
 import express from 'express';
-import { body, validationResult } from 'express-validator';
+import { body, validationResult, query } from 'express-validator';
 import { sendSuccess, sendError, sendValidationError } from '../utils/responseHelpers.js';
 import ContactMessage from '../models/ContactMessage.js';
-import { submitContactForm, getUserMessages, getUserMessageDetail, getAllMessages, getMessageDetail, adminReplyOrUpdate } from '../controllers/contactController.js';
+import { 
+  submitContactForm, 
+  getUserMessages, 
+  getUserMessageDetail, 
+  userAddResponse, // <-- NEW
+  getAllMessages, 
+  getMessageDetail, 
+  adminReplyOrUpdate,
+  getTicketResponses,
+  getMessageStats
+} from '../controllers/contactController.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Validation middleware for contact form
+// Enhanced validation middleware
 const contactValidator = [
   body('name')
     .trim()
@@ -17,10 +27,41 @@ const contactValidator = [
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email address'),
+  body('subject')
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Subject must be between 1 and 200 characters'),
   body('message')
     .trim()
     .isLength({ min: 1, max: 1000 })
-    .withMessage('Message must be between 10 and 1000 characters')
+    .withMessage('Message must be between 1 and 1000 characters'),
+  body('priority')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'urgent'])
+    .withMessage('Invalid priority level'),
+  body('category')
+    .optional()
+    .isIn(['technical', 'billing', 'general', 'feature-request'])
+    .withMessage('Invalid category')
+];
+
+// Response validation
+const responseValidator = [
+  body('response')
+    .trim()
+    .isLength({ min: 1, max: 2000 })
+    .withMessage('Response must be between 1 and 2000 characters')
+];
+
+// Query validation for list endpoints
+const queryValidator = [
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+  query('status').optional().isIn(['all', 'open', 'pending', 'resolved', 'closed']),
+  query('priority').optional().isIn(['all', 'low', 'medium', 'high', 'urgent']),
+  query('category').optional().isIn(['all', 'technical', 'billing', 'general', 'feature-request']),
+  query('sortBy').optional().isIn(['newest', 'oldest', 'priority']),
+  query('search').optional().trim().escape()
 ];
 
 // Handle validation errors
@@ -32,65 +73,20 @@ function handleValidation(req, res, next) {
   next();
 }
 
-/**
- * @swagger
- * /api/contact:
- *   post:
- *     summary: Submit a contact form
- *     tags: [Contact]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - name
- *               - email
- *               - message
- *             properties:
- *               name:
- *                 type: string
- *                 description: User's full name
- *                 minLength: 2
- *                 maxLength: 100
- *               email:
- *                 type: string
- *                 format: email
- *                 description: User's email address
- *               message:
- *                 type: string
- *                 description: Contact message
- *                 minLength: 10
- *                 maxLength: 1000
- *     responses:
- *       200:
- *         description: Contact form submitted successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Message sent successfully! We'll get back to you within 24 hours."
- *       400:
- *         description: Validation error
- *       500:
- *         description: Internal server error
- */
+// Public route - anyone can submit contact form
 router.post('/', contactValidator, handleValidation, submitContactForm);
 
-// User: get own messages
-router.get('/my', requireAuth, getUserMessages);
+// User routes - require authentication
+router.get('/my', requireAuth, queryValidator, handleValidation, getUserMessages);
+router.get('/my/stats', requireAuth, getMessageStats);
 router.get('/my/:id', requireAuth, getUserMessageDetail);
+router.post('/my/:id/response', requireAuth, responseValidator, handleValidation, userAddResponse); // <-- NEW
+router.get('/my/:id/responses', requireAuth, getTicketResponses); // <-- NEW (modified to work for users too)
 
-// Admin: get all messages, get detail, update/reply
-router.get('/', requireAuth, requireAdmin, getAllMessages);
+// Admin routes - require admin role
+router.get('/', requireAuth, requireAdmin, queryValidator, handleValidation, getAllMessages);
 router.get('/:id', requireAuth, requireAdmin, getMessageDetail);
 router.patch('/:id', requireAuth, requireAdmin, adminReplyOrUpdate);
+router.get('/:id/responses', requireAuth, requireAdmin, getTicketResponses);
 
-export default router; 
+export default router;

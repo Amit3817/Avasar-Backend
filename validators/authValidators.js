@@ -66,7 +66,11 @@ export const registerValidator = [
 ];
 
 export const loginValidator = [
-  ...emailValidation,
+    body('email')
+    .notEmpty()
+    .withMessage('Please enter a valid email address or Avasar ID')
+    .trim()
+    .escape(),
   body('password')
     .notEmpty()
     .withMessage('Password is required')
