@@ -14,6 +14,7 @@ import swaggerSpecs from './config/swagger.js';
 import { validateEnvironment, getEnvironmentInfo } from './config/envValidation.js';
 import logger from './config/logger.js';
 import productionConfig from './config/production.js';
+import kycRoutes from './routes/kyc.js';
 dotenv.config();
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
@@ -109,7 +110,10 @@ if (process.env.NODE_ENV !== 'test') {
       }
     });
 }
+// routes/index.tsx or App.tsx
 
+// Add to your Express app
+app.use('/api/kyc', kycRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
@@ -146,7 +150,7 @@ process.on('unhandledRejection', (reason) => {
 // Cron job: reset matchingPairsToday for all users at midnight
 cron.schedule('0 0 * * *', async () => {
   try {
-    await User.updateMany({}, { $set: { 'system.matchingPairsToday': {} } });
+    await User.updateMany({}, { $set: { 'system.matchingPairsToday': {} ,'system.totalPairs': 0} });
   } catch (err) {
     logger.error('Error resetting matchingPairsToday:', err);
   }

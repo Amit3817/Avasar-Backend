@@ -394,3 +394,124 @@ export const getMessageStats = async (req, res) => {
     sendError(res, error.message, 500);
   }
 };
+
+// controllers/contactController.js - Simple Additional Functions
+
+/**
+ * Enhanced submit with basic validations (for unsigned users)
+ */
+export const submitContactWithValidation = async (req, res) => {
+  try {
+    const { name, email, message, subject } = req.body;
+    
+    // Basic validation
+    if (!name || name.length < 2) {
+      return sendError(res, 'Name must be at least 2 characters', 400);
+    }
+    if (!email || !email.includes('@')) {
+      return sendError(res, 'Valid email is required', 400);
+    }
+    if (!message || message.length < 10) {
+      return sendError(res, 'Message must be at least 10 characters', 400);
+    }
+
+    // Check rate limiting
+    const rateLimit = await contactService.checkRateLimit(email);
+    if (rateLimit.isLimited) {
+      return sendError(res, `Too many submissions. Maximum ${rateLimit.maxAllowed} per hour.`, 429);
+    }
+
+    // Check for duplicates
+    const isDuplicate = await contactService.checkDuplicate(email, message);
+    if (isDuplicate) {
+      return sendError(res, 'Similar message already submitted recently', 400);
+    }
+
+    // Auto-categorize
+    const category = contactService.categorizeMessage(message, subject);
+    
+    // Check if returning user
+    const hasHistory = await contactService.hasEmailHistory(email);
+    const priority = hasHistory ? 'medium' : 'low';
+
+    const contactMessage = await contactService.createMessage({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      message: message.trim(),
+      subject: subject?.trim() || 'Unsigned Query',
+      priority,
+      category,
+      status: 'open'
+    });
+
+    sendSuccess(res, { 
+      message: "Message sent successfully! We'll respond within 24 hours.", 
+      data: {
+        ticketId: contactMessage.ticketId,
+        status: contactMessage.status,
+        category: contactMessage.category
+      }
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+};
+
+/**
+ * Check contact status by ticket ID and email
+ */
+export const checkContactStatus = async (req, res) => {
+  try {
+    const { ticketId, email } = req.body;
+    
+    if (!ticketId || !email) {
+      return sendError(res, 'Ticket ID and email are required', 400);
+    }
+
+    const contact = await contactService.getContactStatus(ticketId, email);
+    
+    if (!contact) {
+      return sendError(res, 'Contact not found or email mismatch', 404);
+    }
+
+    sendSuccess(res, { 
+      data: {
+        ticketId: contact.ticketId,
+        subject: contact.subject,
+        status: contact.status,
+        submittedAt: contact.createdAt,
+        lastResponse: contact.lastResponseDate
+      }
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+};
+
+/**
+ * Simple contact form validation endpoint
+ */
+export const validateContactForm = async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+    const errors = [];
+
+    if (!name || name.length < 2) errors.push('Name required (min 2 chars)');
+    if (!email || !email.includes('@')) errors.push('Valid email required');
+    if (!message || message.length < 10) errors.push('Message required (min 10 chars)');
+
+    if (email) {
+      const rateLimit = await contactService.checkRateLimit(email);
+      if (rateLimit.isLimited) {
+        errors.push(`Rate limit exceeded: ${rateLimit.count}/${rateLimit.maxAllowed} per hour`);
+      }
+    }
+
+    sendSuccess(res, { 
+      isValid: errors.length === 0,
+      errors: errors
+    });
+  } catch (error) {
+    sendError(res, error.message, 500);
+  }
+};

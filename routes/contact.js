@@ -3,7 +3,7 @@ import { body, validationResult, query } from 'express-validator';
 import { sendSuccess, sendError, sendValidationError } from '../utils/responseHelpers.js';
 import ContactMessage from '../models/ContactMessage.js';
 import { 
-  submitContactForm, 
+  submitContactWithValidation, 
   getUserMessages, 
   getUserMessageDetail, 
   userAddResponse, // <-- NEW
@@ -74,7 +74,9 @@ function handleValidation(req, res, next) {
 }
 
 // Public route - anyone can submit contact form
-router.post('/', contactValidator, handleValidation, submitContactForm);
+router.post('/', submitContactWithValidation);
+// router.post('/', contactValidator, handleValidation, submitContactForm);
+
 
 // User routes - require authentication
 router.get('/my', requireAuth, queryValidator, handleValidation, getUserMessages);

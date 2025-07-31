@@ -374,6 +374,98 @@ async getMessagesByUserWithPagination(query, options) {
       throw new CustomError('Failed to get message statistics', 500, error.message);
     }
   }
+  // services/contactService.js - Simple Additional Functions
+
+  /**
+   * Check if email has submitted too many messages recently (simple rate limiting)
+   */
+  async checkRateLimit(email, maxPerHour = 3) {
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
+      const recentSubmissions = await ContactMessage.countDocuments({
+        email: email.toLowerCase(),
+        createdAt: { $gte: oneHourAgo }
+      });
+      
+      return {
+        isLimited: recentSubmissions >= maxPerHour,
+        count: recentSubmissions,
+        maxAllowed: maxPerHour
+      };
+    } catch (error) {
+      return { isLimited: false, count: 0, maxAllowed: maxPerHour };
+    }
+  }
+
+  /**
+   * Check for duplicate message in last 10 minutes
+   */
+  async checkDuplicate(email, message) {
+    try {
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      
+      const duplicate = await ContactMessage.findOne({
+        email: email.toLowerCase(),
+        message: message.trim(),
+        createdAt: { $gte: tenMinutesAgo }
+      });
+      
+      return !!duplicate;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Get contact status by ticket ID and email (for unsigned users)
+   */
+  async getContactStatus(ticketId, email) {
+    try {
+      const contact = await ContactMessage.findOne({
+        ticketId: ticketId,
+        email: email.toLowerCase()
+      }).select('ticketId subject status createdAt lastResponseDate');
+      
+      return contact;
+    } catch (error) {
+      throw new Error('Contact not found');
+    }
+  }
+
+  /**
+   * Simple auto-categorization based on keywords
+   */
+  categorizeMessage(message, subject = '') {
+    const text = `${message} ${subject}`.toLowerCase();
+    
+    if (text.includes('payment') || text.includes('billing') || text.includes('refund')) {
+      return 'billing';
+    }
+    if (text.includes('technical') || text.includes('error') || text.includes('not working')) {
+      return 'technical';
+    }
+    if (text.includes('feature') || text.includes('suggestion') || text.includes('request')) {
+      return 'feature-request';
+    }
+    
+    return 'general';
+  }
+
+  /**
+   * Check if email has previous submissions
+   */
+  async hasEmailHistory(email) {
+    try {
+      const count = await ContactMessage.countDocuments({
+        email: email.toLowerCase()
+      });
+      
+      return count > 0;
+    } catch (error) {
+      return false;
+    }
+  }
 }
 
 export default new ContactService();

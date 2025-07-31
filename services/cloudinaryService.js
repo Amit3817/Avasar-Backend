@@ -43,6 +43,33 @@ export const uploadToCloudinary = async (fileBuffer, folder, publicId = null, re
   });
 };
 
+
+// Add this to your existing cloudinary.js file
+
+/**
+ * Upload KYC document
+ * @param {Buffer} fileBuffer - File buffer
+ * @param {string} fileName - Original file name
+ * @param {string} userId - User ID for organizing files
+ * @returns {Promise<Object>} Upload result with secure URL
+ */
+export const uploadKYCDocument = async (fileBuffer, fileName, userId) => {
+  // Sanitize filename
+  const sanitizedFileName = fileName
+    .replace(/\.[^/.]+$/, '') // Remove extension
+    .replace(/[^a-zA-Z0-9-_]/g, '_') // Replace special chars with underscore
+    .toLowerCase()
+    .substring(0, 30); // Limit length
+  
+  const publicId = `kyc_${userId}_${Date.now()}_${sanitizedFileName}`;
+  
+  try {
+    return await uploadToCloudinary(fileBuffer, 'avasar/kyc-documents', publicId, 'image');
+  } catch (error) {
+    console.error('KYC document upload error:', error);
+    throw error;
+  }
+};
 /**
  * Upload profile picture
  * @param {Buffer} fileBuffer - Image buffer
