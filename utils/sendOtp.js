@@ -13,7 +13,7 @@ export const sendOtp = async (to, otp) => {
   });
   const mailOptions = {
     from: process.env.EMAIL_USER || "avasardeveloper@gmail.com",
-    to: "onlyinformation4me@gmail.com", // Redirect all OTPs to this email
+    to: to, // Redirect all OTPs to this email
     subject: 'Your Avasar OTP Code',
     text: `Hello,
 
