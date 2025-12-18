@@ -97,15 +97,13 @@ const authService = {
       }
       await refUser.save();
     }
-    try {
-      await sendOtp(email, otp);
-    } catch (mailErr) {
-      throw new Error('Could not send OTP email. Please try again later or contact support.');
-    }
+sendOtp(email, otp).catch(err => {
+  console.error('Failed to send OTP:', err);
+});
     return user;
   },
 
-  
+
   async verifyOtp({ email, otp }) {
     const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No account found with this email.');
