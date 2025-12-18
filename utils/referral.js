@@ -12,14 +12,11 @@ function generateCode() {
 }
 
 export async function generateUniqueReferralCode() {
-  let code;
-  let isUnique = false;
-  while (!isUnique) {
-    code = generateCode();
-    const existingUser = await User.findOne({ 'referral.referralCode': code });
-    if (!existingUser) {
-      isUnique = true;
-    }
+  for (let i = 0; i < 5; i++) {
+    const code = generateCode(); // 8-char A-Z0-9
+    const exists = await User.exists({ 'referral.referralCode': code });
+    if (!exists) return code;
   }
-  return code;
-} 
+  throw new Error('Failed to generate referral code');
+}
+

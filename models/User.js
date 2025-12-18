@@ -99,9 +99,11 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ 'referral.referredBy': 1 });
 userSchema.index({ 'referral.leftChildren': 1 });
 userSchema.index({ 'referral.rightChildren': 1 });
-userSchema.index({ 'referral.referralCode': 1 });
-userSchema.index({ 'auth.email': 1 });
-userSchema.index({ 'profile.phone': 1 });
+userSchema.index({ 'auth.email': 1 }, { unique: true });
+userSchema.index({ 'profile.phone': 1 }, { unique: true });
+userSchema.index({ 'referral.referralCode': 1 }, { unique: true });
+userSchema.index({ avasarId: 1 }, { unique: true });
+
 
 // Virtual getters for backward compatibility
 userSchema.virtual('fullName').get(function() { return this.profile?.fullName; });
