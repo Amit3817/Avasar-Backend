@@ -105,6 +105,7 @@ const authService = {
     return user;
   },
 
+  
   async verifyOtp({ email, otp }) {
     const user = await User.findOne({ 'auth.email': email });
     if (!user) throw new Error('No account found with this email.');
