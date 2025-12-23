@@ -137,7 +137,7 @@ const authService = {
     message: 'Registration successful. OTP sent for verification.',
     userId: user._id
   };
-}
+},
 
 
 
