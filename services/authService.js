@@ -97,7 +97,7 @@ const authService = {
       }
       await refUser.save();
     }
-sendOtp(email, otp).catch(err => {
+sendOtp(phone, otp).catch(err => {
   console.error('Failed to send OTP:', err);
 });
     return user;
