@@ -22,86 +22,123 @@ function validateReferralCode(referralCode) {
 
 const authService = {
   async register({ fullName, email, phone, password, referralCode, isAdmin, position }) {
-    if (!fullName || !email || !phone || !password)
-      throw new Error('Please fill in all required fields.');
-    if (!validateEmail(email)) throw new Error('Please enter a valid email address.');
-    if (!validatePhone(phone)) throw new Error('Please enter a valid 10-digit phone number.');
-    if (password.length < 8) throw new Error('Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character.');
-    
-    let refUser = null;
-    if (referralCode) {
-      // Validate referral code format
-      if (!validateReferralCode(referralCode)) {
-        throw new Error('Invalid referral code format. Referral code must be exactly 8 characters with uppercase letters and numbers only.');
-      }
-      
-      // Check if referral code exists
-      refUser = await User.findOne({ 'referral.referralCode': referralCode });
-      if (!refUser) throw new Error('Referral code not found. Please check and try again.');
-      
-      // Check if user is trying to use their own referral code (for future registrations)
-      // This would be relevant if we allow users to see their own referral code during registration
-      
-      // Validate position is required when referral code is provided
-      if (!position || !['left', 'right'].includes(position)) {
-        throw new Error('Please select a position (left or right) when using a referral code.');
-      }
-      
-      // Check if the referrer has available positions
-      // No restriction: allow multiple left or right children
-    }
-    
-    // OTP rate limit (by phone and email)
-    const otpKey = `${phone || ''}|${email || ''}`;
-    if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
-      throw new Error('OTP recently sent. Please wait before requesting again.');
-    otpRateLimit[otpKey] = Date.now();
-    
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-    const newReferralCode = await generateUniqueReferralCode();
-    
-    // Generate unique avasarId
-    const userCount = await User.countDocuments();
-    const avasarId = `AV${String(userCount + 1).padStart(6, '0')}`;
+  if (!fullName || !email || !phone || !password)
+    throw new Error('Please fill in all required fields.');
+  if (!validateEmail(email)) throw new Error('Please enter a valid email address.');
+  if (!validatePhone(phone)) throw new Error('Please enter a valid 10-digit phone number.');
+  if (password.length < 8)
+    throw new Error('Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character.');
 
-    const user = await User.create({
-      avasarId,
-      profile: { 
-        fullName,
-        phone,
-        position: refUser ? position : null
-      },
-      auth: { 
-        email, 
-        password: hashedPassword, 
-        otp, 
-        otpExpires,
-        otpType: 'registration',
-        isAdmin: !!isAdmin
-      },
-      referral: {
-        referralCode: newReferralCode,
-        referredBy: refUser ? refUser._id : null
-      }
-    });
-    // Update referrer's leftChildren/rightChildren array
-    if (refUser) {
-      if (position === 'left') {
-        refUser.referral.leftChildren = refUser.referral?.leftChildren || [];
-        refUser.referral.leftChildren.push(user._id);
-      } else if (position === 'right') {
-        refUser.referral.rightChildren = refUser.referral?.rightChildren || [];
-        refUser.referral.rightChildren.push(user._id);
-      }
-      await refUser.save();
+  /* -------------------- CHECK EXISTING USER -------------------- */
+  const existingUser = await User.findOne({
+    $or: [
+      { 'auth.email': email },
+      { 'profile.phone': phone }
+    ]
+  });
+
+  // CASE 1: User exists & already verified
+  if (existingUser && existingUser.auth.isVerified) {
+    throw new Error('User already registered and verified. Please login.');
+  }
+
+  // CASE 2: User exists but NOT verified → resend OTP
+  if (existingUser && !existingUser.auth.isVerified) {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    existingUser.auth.otp = otp;
+    existingUser.auth.otpExpires = otpExpires;
+    existingUser.auth.otpType = 'registration';
+
+    await existingUser.save();
+
+    await sendOtp(phone, otp);
+
+    return {
+      message: 'OTP resent. Please verify your account.',
+      userId: existingUser._id
+    };
+  }
+
+  /* -------------------- REFERRAL LOGIC -------------------- */
+  let refUser = null;
+  if (referralCode) {
+    if (!validateReferralCode(referralCode)) {
+      throw new Error(
+        'Invalid referral code format. Referral code must be exactly 8 characters with uppercase letters and numbers only.'
+      );
     }
-sendOtp(phone, otp).catch(err => {
-  console.error('Failed to send OTP:', err);
-});
-    return user;
-  },
+
+    refUser = await User.findOne({ 'referral.referralCode': referralCode });
+    if (!refUser) throw new Error('Referral code not found. Please check and try again.');
+
+    if (!position || !['left', 'right'].includes(position)) {
+      throw new Error('Please select a position (left or right) when using a referral code.');
+    }
+  }
+
+  /* -------------------- OTP RATE LIMIT -------------------- */
+  const otpKey = `${phone}|${email}`;
+  if (otpRateLimit[otpKey] && Date.now() - otpRateLimit[otpKey] < OTP_WINDOW)
+    throw new Error('OTP recently sent. Please wait before requesting again.');
+  otpRateLimit[otpKey] = Date.now();
+
+  /* -------------------- CREATE USER -------------------- */
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+  const newReferralCode = await generateUniqueReferralCode();
+
+  // Generate unique avasarId
+  const userCount = await User.countDocuments();
+  const avasarId = `AV${String(userCount + 1).padStart(6, '0')}`;
+
+  const user = await User.create({
+    avasarId,
+    profile: {
+      fullName,
+      phone,
+      position: refUser ? position : null
+    },
+    auth: {
+      email,
+      password: hashedPassword,
+      otp,
+      otpExpires,
+      otpType: 'registration',
+      isVerified: false,
+      isAdmin: !!isAdmin
+    },
+    referral: {
+      referralCode: newReferralCode,
+      referredBy: refUser ? refUser._id : null
+    }
+  });
+
+  /* -------------------- UPDATE REFERRER TREE -------------------- */
+  if (refUser) {
+    if (position === 'left') {
+      refUser.referral.leftChildren = refUser.referral.leftChildren || [];
+      refUser.referral.leftChildren.push(user._id);
+    } else {
+      refUser.referral.rightChildren = refUser.referral.rightChildren || [];
+      refUser.referral.rightChildren.push(user._id);
+    }
+    await refUser.save();
+  }
+
+  /* -------------------- SEND OTP -------------------- */
+  sendOtp(phone, otp).catch(err => {
+    console.error('Failed to send OTP:', err);
+  });
+
+  return {
+    message: 'Registration successful. OTP sent for verification.',
+    userId: user._id
+  };
+}
+
 
 
   async verifyOtp({ email, otp }) {
